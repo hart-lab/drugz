@@ -162,18 +162,11 @@ for i in range(1, numSamples):
 print 'Combining drugZ scores'
 
 # get unique list of genes in the data set
-genes = sorted( list( set(dz_fc.GENE) ) )
-drugz = pd.DataFrame(index=genes)
+usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
+drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([nansum(x.values), isfinite(x.values).sum()]))
+drugz.columns = ['sumZ', 'numObs']
+drugz.loc[:,'normZ'] = drugz.sumZ / sqrt(drugz.numObs)
 
-for g in genes:
-    f=find( dz_fc.GENE==g )
-    sumZ = nansum( dz_fc.ix[f,['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]])
-    numElements = sum( isfinite( asarray( dz_fc.ix[f,['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]] ) ) )
-    normZ = sumZ / sqrt(numElements)
-    drugz.ix[g,'sumZ'] = sumZ
-    drugz.ix[g,'numObs'] = numElements
-    drugz.ix[g,'normZ'] = normZ
-    
 #
 #
 print 'Writing output file'
