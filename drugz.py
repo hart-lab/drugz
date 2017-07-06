@@ -72,7 +72,7 @@ drug_samples    = args.drug_samples[0].split(',')
 
 remove_genes    = None
 if ( args.remove_genes ):
-	remove_genes    = args.remove_genes[0].split(',')
+    remove_genes    = args.remove_genes[0].split(',')
 
 pseudocount     = int(args.pseudocount)
 minObs          = int(args.minObs)
@@ -107,7 +107,7 @@ normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,cont
 
 print 'Caculating fold change'
 fc = pd.DataFrame(index=reads.index.values)
-fc['GENE'] = reads.ix[:,0]		# first column of input file MUST be gene name!
+fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
 for k in range(len(control_samples)):    
     fc[control_samples[k]] = reads[ control_samples[k] ]
     fc[drug_samples[k]] = reads[ drug_samples[k] ]
@@ -118,7 +118,7 @@ for k in range(len(control_samples)):
 # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
 
 if ( remove_genes ):
-	fc = fc.ix[~fc.GENE.isin(remove_genes),:]
+    fc = fc.ix[~fc.GENE.isin(remove_genes),:]
 
 ##
 #create drugz foldchange dataframe
