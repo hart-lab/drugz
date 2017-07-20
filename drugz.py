@@ -17,9 +17,12 @@
 # ------------------------------------
 # python modules
 # ------------------------------------
-from pylab import *
+import sys
+
+from matplotlib.mlab import find
 import six
 
+import numpy as np
 import pandas as pd
 import scipy.stats as stats
 
@@ -34,7 +37,7 @@ min_reads_thresh = 0
 # ------------------------------------
 
 def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples, 
-          remove_genes=None, pseudocount=5, minObs=6, gene_column=0, verbose=False):
+          remove_genes=None, pseudocount=5, minObs=6, index_column=0, verbose=False):
     num_replicates = len(control_samples)
     
     verbose and six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
@@ -46,7 +49,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     non=pd.read_table(nonessfile,index_col=0);
     #
     #read sgRNA reads counts file
-    reads = pd.read_table(readfile, index_col=gene_column)
+    reads = pd.read_table(readfile, index_col=index_column)
     numGuides, numSamples = reads.shape
     #
         
@@ -88,7 +91,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     # find nonessential/control reference 
     #
-    nonidx = find( in1d(dz_fc.GENE, non.index.values))
+    nonidx = find( np.in1d(dz_fc.GENE, non.index.values))
     
     #
     # get fold changes from specficied samples
@@ -105,9 +108,9 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     verbose and six.print_('Caculating Zscores', file=sys.stderr)
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
-        fin    = find( isfinite(dz_fc.ix[nonidx,sample]))
+        fin    = find( np.isfinite(dz_fc.ix[nonidx,sample]))
         quants = dz_fc.ix[nonidx[fin],sample].quantile([qmin,qmax])
-        g = find( (dz_fc.ix[nonidx,sample] > quants[qmin]) & (dz_fc.ix[nonidx,sample] < quants[qmax]) & ( isfinite(dz_fc.ix[nonidx,sample]) ) )
+        g = find( (dz_fc.ix[nonidx,sample] > quants[qmin]) & (dz_fc.ix[nonidx,sample] < quants[qmax]) & ( np.isfinite(dz_fc.ix[nonidx,sample]) ) )
         sigmag = dz_fc.ix[nonidx[g],sample].std()
         mug = dz_fc.ix[nonidx[g],sample].mean()
         zsample = 'Z_' + sample
@@ -121,9 +124,9 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
-    drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([nansum(x.values), isfinite(x.values).sum()]))
+    drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
     drugz.columns = ['sumZ', 'numObs']
-    drugz.loc[:,'normZ'] = drugz.sumZ / sqrt(drugz.numObs)
+    drugz.loc[:,'normZ'] = drugz.sumZ / np.sqrt(drugz.numObs)
     
     #
     #
@@ -135,11 +138,11 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     numGenes, numCols = drugz_minobs.shape
     drugz_minobs=drugz_minobs.sort_values('normZ', ascending=True)
     drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
-    drugz_minobs.loc[:,'rank_synth'] = arange(1,numGenes +1)
+    drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
     drugz_minobs.loc[:,'fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs.loc[:,'rank_synth']
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=False)
     drugz_minobs.loc[:,'pval_supp'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'])
-    drugz_minobs.loc[:,'rank_supp'] = arange(1,numGenes +1)
+    drugz_minobs.loc[:,'rank_supp'] = np.arange(1,numGenes +1)
     drugz_minobs.loc[:,'fdr_supp']  = drugz_minobs.loc[:,'pval_supp'] * numGenes / drugz_minobs.loc[:,'rank_supp']
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=True)
     #
@@ -172,7 +175,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
 
 
 def main():
-    import argparse, sys
+    import argparse
     
     ''' Parse arguments. '''
     p = argparse.ArgumentParser(description='DrugZ for chemogenetic interaction screens',epilog='dependencies: pylab, pandas')
@@ -198,7 +201,7 @@ def main():
         p.error("Must have the same number of control and drug samples")
     
     drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
-          remove_genes, args.pseudocount, args.minObs, args.gene_column, not args.quiet)
+          remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
 
 if __name__=="__main__":
     main()
