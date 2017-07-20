@@ -72,7 +72,7 @@ drug_samples    = args.drug_samples[0].split(',')
 
 remove_genes    = None
 if ( args.remove_genes ):
-	remove_genes    = args.remove_genes[0].split(',')
+    remove_genes    = args.remove_genes[0].split(',')
 
 pseudocount     = int(args.pseudocount)
 minObs          = int(args.minObs)
@@ -107,7 +107,7 @@ normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,cont
 
 print 'Caculating fold change'
 fc = pd.DataFrame(index=reads.index.values)
-fc['GENE'] = reads.ix[:,0]		# first column of input file MUST be gene name!
+fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
 for k in range(len(control_samples)):    
     fc[control_samples[k]] = reads[ control_samples[k] ]
     fc[drug_samples[k]] = reads[ drug_samples[k] ]
@@ -118,7 +118,7 @@ for k in range(len(control_samples)):
 # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
 
 if ( remove_genes ):
-	fc = fc.ix[~fc.GENE.isin(remove_genes),:]
+    fc = fc.ix[~fc.GENE.isin(remove_genes),:]
 
 ##
 #create drugz foldchange dataframe
@@ -162,18 +162,11 @@ for i in range(1, numSamples):
 print 'Combining drugZ scores'
 
 # get unique list of genes in the data set
-genes = sorted( list( set(dz_fc.GENE) ) )
-drugz = pd.DataFrame(index=genes)
+usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
+drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([nansum(x.values), isfinite(x.values).sum()]))
+drugz.columns = ['sumZ', 'numObs']
+drugz.loc[:,'normZ'] = drugz.sumZ / sqrt(drugz.numObs)
 
-for g in genes:
-    f=find( dz_fc.GENE==g )
-    sumZ = nansum( dz_fc.ix[f,['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]])
-    numElements = sum( isfinite( asarray( dz_fc.ix[f,['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]] ) ) )
-    normZ = sumZ / sqrt(numElements)
-    drugz.ix[g,'sumZ'] = sumZ
-    drugz.ix[g,'numObs'] = numElements
-    drugz.ix[g,'normZ'] = normZ
-    
 #
 #
 print 'Writing output file'
