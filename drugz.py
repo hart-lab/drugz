@@ -29,7 +29,7 @@ import scipy.stats as stats
 
 # ------------------------------------
 # constants
-norm_value  = 10000000.
+norm_value  = 1e7
 qmin = 0.025
 qmax = 0.975
 min_reads_thresh = 0
@@ -44,8 +44,8 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     num_replicates = len(control_samples)
     
-    log_('Control samples:  ' + str(control_samples), file=sys.stderr)
-    log_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
+    log_('Control samples:  ' + str(control_samples))
+    log_('Treated samples:  ' + str(drug_samples))
     
     #
     #read non essential genes
@@ -61,7 +61,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #normalize to norm_value reads
     #
-    log_('Normalizing read counts', file=sys.stderr)
+    log_('Normalizing read counts')
     normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
     
     
@@ -70,7 +70,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    log_('Caculating fold change', file=sys.stderr)
+    log_('Caculating fold change')
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:,'GENE']      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
@@ -101,15 +101,15 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # get fold changes from specficied samples
     #
     for i in range(len(control_samples)):
-        f=find(fc.ix[:,control_samples[i]] > min_reads_thresh)
-        dz_fc['dz_fc_{0}'.format(i)]=fc.ix[f,'fc_{0}'.format(i)]
+        f = find(fc.ix[:,control_samples[i]] > min_reads_thresh)
+        dz_fc['dz_fc_{0}'.format(i)] = fc.ix[f,'fc_{0}'.format(i)]
     numGuides, numSamples = dz_fc.shape
     
     #
     # calculate moderated zscores for each gRNA
     #
     
-    log_('Caculating Zscores', file=sys.stderr)
+    log_('Caculating Zscores')
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
         fin    = find( np.isfinite(dz_fc.ix[nonidx,sample]))
@@ -124,7 +124,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # combine to gene-level drugz scores
     #
     
-    log_('Combining drugZ scores', file=sys.stderr)
+    log_('Combining drugZ scores')
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
@@ -134,7 +134,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     #
     #
-    log_('Writing output file', file=sys.stderr)
+    log_('Writing output file')
     #
     # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
