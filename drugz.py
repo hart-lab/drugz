@@ -38,10 +38,14 @@ min_reads_thresh = 0
 
 def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples, 
           remove_genes=None, pseudocount=5, minObs=6, index_column=0, verbose=False):
+    def log_(msg):
+        if verbose:
+            six.print_(msg, file=sys.stderr)
+    
     num_replicates = len(control_samples)
     
-    verbose and six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
-    verbose and six.print_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
+    log_('Control samples:  ' + str(control_samples), file=sys.stderr)
+    log_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
     
     #
     #read non essential genes
@@ -57,7 +61,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #normalize to norm_value reads
     #
-    verbose and six.print_('Normalizing read counts', file=sys.stderr)
+    log_('Normalizing read counts', file=sys.stderr)
     normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
     
     
@@ -66,7 +70,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    verbose and six.print_('Caculating fold change', file=sys.stderr)
+    log_('Caculating fold change', file=sys.stderr)
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:,'GENE']      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
@@ -105,7 +109,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # calculate moderated zscores for each gRNA
     #
     
-    verbose and six.print_('Caculating Zscores', file=sys.stderr)
+    log_('Caculating Zscores', file=sys.stderr)
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
         fin    = find( np.isfinite(dz_fc.ix[nonidx,sample]))
@@ -120,7 +124,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # combine to gene-level drugz scores
     #
     
-    verbose and six.print_('Combining drugZ scores', file=sys.stderr)
+    log_('Combining drugZ scores', file=sys.stderr)
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
@@ -130,7 +134,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     #
     #
-    verbose and six.print_('Writing output file', file=sys.stderr)
+    log_('Writing output file', file=sys.stderr)
     #
     # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
