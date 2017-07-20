@@ -18,6 +18,7 @@
 # python modules
 # ------------------------------------
 from pylab import *
+import six
 
 import pandas as pd
 import scipy.stats as stats
@@ -36,8 +37,8 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
           remove_genes=None, pseudocount=5, minObs=6):
     num_replicates = len(control_samples)
     
-    print('Control samples:  ' + str(control_samples))
-    print('Treated samples:  ' + str(drug_samples))
+    six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
+    six.print_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
     
     #
     #read non essential genes
@@ -53,7 +54,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #normalize to norm_value reads
     #
-    print('Normalizing read counts')
+    six.print_('Normalizing read counts', file=sys.stderr)
     normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
     
     
@@ -62,7 +63,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    print('Caculating fold change')
+    six.print_('Caculating fold change', file=sys.stderr)
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
@@ -101,7 +102,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # calculate moderated zscores for each gRNA
     #
     
-    print('Caculating Zscores')
+    six.print_('Caculating Zscores', file=sys.stderr)
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
         fin    = find( isfinite(dz_fc.ix[nonidx,sample]))
@@ -116,7 +117,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # combine to gene-level drugz scores
     #
     
-    print('Combining drugZ scores')
+    six.print_('Combining drugZ scores', file=sys.stderr)
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
@@ -126,7 +127,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     #
     #
-    print('Writing output file')
+    six.print_('Writing output file', file=sys.stderr)
     #
     # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
@@ -171,13 +172,13 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
 
 
 def main():
-    import argparse
+    import argparse, sys
     
     ''' Parse arguments. '''
     p = argparse.ArgumentParser(description='DrugZ for chemogenetic interaction screens',epilog='dependencies: pylab, pandas')
     p._optionals.title = "Options"
-    p.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt", required=True, help="sgRNA readcount file")
-    p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", required=True, help="drugz output file") 
+    p.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt", help="sgRNA readcount file", default=sys.stdin)
+    p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", help="drugz output file", default=sys.stdout) 
     p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
     p.add_argument("-c", dest="control_samples", metavar="control samples", required=True, help="control samples, comma delimited")
     p.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True, help="treatment samples, comma delimited")
