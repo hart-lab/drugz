@@ -34,7 +34,7 @@ min_reads_thresh = 0
 # ------------------------------------
 
 def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples, 
-          remove_genes=None, pseudocount=5, minObs=6, verbose=False):
+          remove_genes=None, pseudocount=5, minObs=6, gene_column=0, verbose=False):
     num_replicates = len(control_samples)
     
     verbose and six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
@@ -46,7 +46,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     non=pd.read_table(nonessfile,index_col=0);
     #
     #read sgRNA reads counts file
-    reads = pd.read_table(readfile, index_col=0)
+    reads = pd.read_table(readfile, index_col=gene_column)
     numGuides, numSamples = reads.shape
     #
         
@@ -65,7 +65,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     verbose and six.print_('Caculating fold change', file=sys.stderr)
     fc = pd.DataFrame(index=reads.index.values)
-    fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
+    fc['GENE'] = reads.ix[:,'GENE']      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
         fc[control_samples[k]] = reads[ control_samples[k] ]
         fc[drug_samples[k]] = reads[ drug_samples[k] ]
@@ -182,9 +182,10 @@ def main():
     p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
     p.add_argument("-c", dest="control_samples", metavar="control samples", required=True, help="control samples, comma delimited")
     p.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True, help="treatment samples, comma delimited")
-    p.add_argument("-r", dest="remove_genes", metavar="remove genes", required=False, help="genes to remove, comma delimited", default='')
-    p.add_argument("-p", dest="pseudocount", type=int,metavar="pseudocount", required=False, help="pseudocount (default=5)", default=5)
-    p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", required=False, help="min number of obs (default=6)", default=6)
+    p.add_argument("-r", dest="remove_genes", metavar="remove genes", help="genes to remove, comma delimited", default='')
+    p.add_argument("-p", dest="pseudocount", type=int, metavar="pseudocount", help="pseudocount (default=5)", default=5)
+    p.add_argument("-I", dest="index_column", type=int, help="Index column in the input file (default=0; GENE_CLONE column)", default=0)
+    p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", help="min number of obs (default=6)", default=6)
     p.add_argument("-q", dest="quiet", action='store_true', default=False, help='Be quiet, do not print log messages')
 
     args = p.parse_args()
@@ -197,7 +198,7 @@ def main():
         p.error("Must have the same number of control and drug samples")
     
     drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
-          remove_genes, args.pseudocount, args.minObs, not args.quiet)
+          remove_genes, args.pseudocount, args.minObs, args.gene_column, not args.quiet)
 
 if __name__=="__main__":
     main()
