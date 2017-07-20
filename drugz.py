@@ -34,11 +34,11 @@ min_reads_thresh = 0
 # ------------------------------------
 
 def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples, 
-          remove_genes=None, pseudocount=5, minObs=6):
+          remove_genes=None, pseudocount=5, minObs=6, verbose=False):
     num_replicates = len(control_samples)
     
-    six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
-    six.print_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
+    verbose and six.print_('Control samples:  ' + str(control_samples), file=sys.stderr)
+    verbose and six.print_('Treated samples:  ' + str(drug_samples), file=sys.stderr)
     
     #
     #read non essential genes
@@ -54,7 +54,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #normalize to norm_value reads
     #
-    six.print_('Normalizing read counts', file=sys.stderr)
+    verbose and six.print_('Normalizing read counts', file=sys.stderr)
     normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
     
     
@@ -63,7 +63,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    six.print_('Caculating fold change', file=sys.stderr)
+    verbose and six.print_('Caculating fold change', file=sys.stderr)
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
@@ -102,7 +102,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # calculate moderated zscores for each gRNA
     #
     
-    six.print_('Caculating Zscores', file=sys.stderr)
+    verbose and six.print_('Caculating Zscores', file=sys.stderr)
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
         fin    = find( isfinite(dz_fc.ix[nonidx,sample]))
@@ -117,7 +117,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # combine to gene-level drugz scores
     #
     
-    six.print_('Combining drugZ scores', file=sys.stderr)
+    verbose and six.print_('Combining drugZ scores', file=sys.stderr)
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
@@ -127,7 +127,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     #
     #
-    six.print_('Writing output file', file=sys.stderr)
+    verbose and six.print_('Writing output file', file=sys.stderr)
     #
     # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
@@ -185,6 +185,7 @@ def main():
     p.add_argument("-r", dest="remove_genes", metavar="remove genes", required=False, help="genes to remove, comma delimited", default='')
     p.add_argument("-p", dest="pseudocount", type=int,metavar="pseudocount", required=False, help="pseudocount (default=5)", default=5)
     p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", required=False, help="min number of obs (default=6)", default=6)
+    p.add_argument("-q", dest="quiet", action='store_true', default=False, help='Be quiet, do not print log messages')
 
     args = p.parse_args()
     
@@ -195,7 +196,8 @@ def main():
     if len(control_samples) != len(drug_samples):
         p.error("Must have the same number of control and drug samples")
     
-    drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, remove_genes, args.pseudocount, args.minObs)
+    drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
+          remove_genes, args.pseudocount, args.minObs, not args.quiet)
 
 if __name__=="__main__":
     main()
