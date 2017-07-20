@@ -17,10 +17,12 @@
 # ------------------------------------
 # python modules
 # ------------------------------------
-import pandas as pd 
-import argparse
-import scipy.stats as stats
 from pylab import *
+
+import pandas as pd
+import scipy.stats as stats
+
+
 # ------------------------------------
 # constants
 norm_value  = 10000000.
@@ -34,8 +36,8 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
           remove_genes=None, pseudocount=5, minObs=6):
     num_replicates = len(control_samples)
     
-    print 'Control samples:  ' + str(control_samples)
-    print 'Treated samples:  ' + str(drug_samples)
+    print('Control samples:  ' + str(control_samples))
+    print('Treated samples:  ' + str(drug_samples))
     
     #
     #read non essential genes
@@ -51,7 +53,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #normalize to norm_value reads
     #
-    print 'Normalizing read counts'
+    print('Normalizing read counts')
     normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
     
     
@@ -60,7 +62,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    print 'Caculating fold change'
+    print('Caculating fold change')
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:,0]      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
@@ -99,7 +101,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # calculate moderated zscores for each gRNA
     #
     
-    print 'Caculating Zscores'
+    print('Caculating Zscores')
     for i in range(1, numSamples):
         sample = dz_fc.columns.values[i]
         fin    = find( isfinite(dz_fc.ix[nonidx,sample]))
@@ -114,7 +116,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # combine to gene-level drugz scores
     #
     
-    print 'Combining drugZ scores'
+    print('Combining drugZ scores')
     
     # get unique list of genes in the data set
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
@@ -124,7 +126,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     #
     #
-    print 'Writing output file'
+    print('Writing output file')
     #
     # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
