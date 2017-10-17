@@ -130,7 +130,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
     drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
     drugz.columns = ['sumZ', 'numObs']
-    drugz.loc[:,'normZ'] = drugz.sumZ / np.sqrt(drugz.numObs)
+    drugz.loc[:,'normZ'] = stats.zscore( drugz.sumZ / np.sqrt(drugz.numObs) )
     
     #
     #
