@@ -72,7 +72,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     log_('Caculating fold change')
     fc = pd.DataFrame(index=reads.index.values)
-    fc['GENE'] = reads.ix[:,'GENE']      # first column of input file MUST be gene name!
+    fc['GENE'] = reads.ix[:, (reads.columns.values[0] ) ]      # first column of input file MUST be gene name!
     for k in range(len(control_samples)):    
         fc[control_samples[k]] = reads[ control_samples[k] ]
         fc[drug_samples[k]] = reads[ drug_samples[k] ]
@@ -130,8 +130,8 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
     drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
     drugz.columns = ['sumZ', 'numObs']
-    drugz.loc[:,'normZ'] = stats.zscore( drugz.sumZ / np.sqrt(drugz.numObs) )
-    
+    #drugz.loc[:,'normZ'] =  drugz.sumZ / np.sqrt(drugz.numObs) 
+    #drugz.loc[:,'ZofZ'] = stats.zscore( drugz.normZ )
     #
     #
     log_('Writing output file')
@@ -140,6 +140,15 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     drugz_minobs = drugz.ix[drugz.numObs>=minObs,:]
     numGenes, numCols = drugz_minobs.shape
+    #
+    # moderated z scores
+    #
+    normZ = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
+    quants = normZ.quantile([qmin,qmax])
+    g = find( (normZ > quants[qmin]) & (normZ < quants[qmax]) )
+    sigmag = normZ[g].std()
+    mug = normZ[g].mean()
+    drugz_minobs.loc[:,'normZ'] = (normZ - mug) / sigmag
     drugz_minobs=drugz_minobs.sort_values('normZ', ascending=True)
     drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
     drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
@@ -152,6 +161,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     # write output file
     #
+    #drugz_minobs.to_csv( drugz_outfile, sep='\t', float_format='%3.2f')
     fout = drugz_outfile
     if not hasattr(fout, 'write'):
         fout = open(fout, 'w')
@@ -162,18 +172,18 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     fout.write('\n')
     
     for i in drugz_minobs.index.values:
-    #    fout.write(i + '\t')
+        #fout.write(i + '\t')
         fout.write( '{0:s}\t{1:3.2f}\t{2:d}\t{3:4.2f}\t{4:.3g}\t{5:d}\t{6:.3g}\t{7:.3g}\t{8:d}\t{9:.3g}\n'.format( \
             i, \
-            drugz_minobs.ix[i,'sumZ'], \
-            int(drugz_minobs.ix[i,'numObs']), \
-            drugz_minobs.ix[i,'normZ'], \
-            drugz_minobs.ix[i,'pval_synth'], \
-            int(drugz_minobs.ix[i,'rank_synth']), \
-            drugz_minobs.ix[i,'fdr_synth'], \
-            drugz_minobs.ix[i,'pval_supp'], \
-            int(drugz_minobs.ix[i,'rank_supp']), \
-            drugz_minobs.ix[i,'fdr_supp'] ) )
+            drugz_minobs.loc[i,'sumZ'], \
+            int(drugz_minobs.loc[i,'numObs']), \
+            drugz_minobs.loc[i,'normZ'], \
+            drugz_minobs.loc[i,'pval_synth'], \
+            int(drugz_minobs.loc[i,'rank_synth']), \
+            drugz_minobs.loc[i,'fdr_synth'], \
+           drugz_minobs.loc[i,'pval_supp'], \
+            int(drugz_minobs.loc[i,'rank_supp']), \
+            drugz_minobs.loc[i,'fdr_supp'] ) )
     
     fout.close()
 
