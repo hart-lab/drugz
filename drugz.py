@@ -1,18 +1,16 @@
 #!/usr/bin/env python
-#Last-modified: 12 Jun 2017
 
-#         Module/Scripts Description
-# 
-# Copyright (c) 2017 Traver Hart <traver@hart-lab.org>, Gang Wang <iskysinger@gmail.com>
-# 
-# This code is free software; you can redistribute it and/or modify it
-# under the terms of the BSD License (see the file COPYING included with
-# the distribution).
-# 
-# @status:  Bioinformatics
-# @version: 0.1.1
-# @authors:  Traver Hart, Gang Wang
-# @contact: traver@hart-lab.org, iskysinger@gmail.com
+VERSION = 1.0
+BUILD   = 102
+
+#---------------------------------
+# DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
+# (c) 2017 Traver Hart <traver@hart-lab.org>, Gang Wang <iskysinger@gmail.com>
+# Special thanks to Matej Usaj 
+# Last modified 18 Oct 2017
+# Free to modify and redistribute with attribtuion
+#---------------------------------
+
 
 # ------------------------------------
 # python modules
@@ -81,6 +79,7 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     
     # remove control genes
     # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
+    # TKOv3: 'EGFP','LacZ','luciferase'
     
     if ( remove_genes ):
         fc = fc.ix[~fc.GENE.isin(remove_genes),:]
@@ -92,22 +91,22 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     dz_fc = pd.DataFrame(index=fc.index.values)
     dz_fc['GENE']=fc.GENE
     
-    #
+    ##
     # find nonessential/control reference 
-    #
+    ##
     nonidx = find( np.in1d(dz_fc.GENE, non.index.values))
     
-    #
+    ##
     # get fold changes from specficied samples
-    #
+    #3
     for i in range(len(control_samples)):
         f = find(fc.ix[:,control_samples[i]] > min_reads_thresh)
         dz_fc['dz_fc_{0}'.format(i)] = fc.ix[f,'fc_{0}'.format(i)]
     numGuides, numSamples = dz_fc.shape
     
-    #
-    # calculate moderated zscores for each gRNA
-    #
+    ##
+    # calculate zscores for each gRNA from trimmed-mean/trimmed-variance fold change distributions
+    ##
     
     log_('Caculating Zscores')
     for i in range(1, numSamples):
@@ -120,9 +119,9 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
         zsample = 'Z_' + sample
         dz_fc[zsample] = (dz_fc.ix[:,sample] - mug) / sigmag
     
-    #
-    # combine to gene-level drugz scores
-    #
+    ##
+    # sum guide-level zscores to gene-level drugz scores. keep track of how many elements (fold change observations) were summed.
+    ##
     
     log_('Combining drugZ scores')
     
@@ -130,19 +129,17 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
     drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
     drugz.columns = ['sumZ', 'numObs']
-    #drugz.loc[:,'normZ'] =  drugz.sumZ / np.sqrt(drugz.numObs) 
-    #drugz.loc[:,'ZofZ'] = stats.zscore( drugz.normZ )
     #
     #
     log_('Writing output file')
     #
-    # calculate numObs, pvals (from normal dist), and fdrs (by benjamini & hochberg).
+    # calculate normZ, pvals (from normal dist), and fdrs (by benjamini & hochberg).
     #
     drugz_minobs = drugz.ix[drugz.numObs>=minObs,:]
     numGenes, numCols = drugz_minobs.shape
-    #
-    # moderated z scores
-    #
+    ##
+    # calculate normZ as sumZ / sqrt(numObs), then Z-transform with trimmed mean/stdev
+    ##
     normZ = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
     quants = normZ.quantile([qmin,qmax])
     g = find( (normZ > quants[qmin]) & (normZ < quants[qmax]) )
@@ -153,6 +150,9 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
     drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
     drugz_minobs.loc[:,'fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs.loc[:,'rank_synth']
+    #
+    # rerank by normZ to identify suppressor interactions
+    #
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=False)
     drugz_minobs.loc[:,'pval_supp'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'])
     drugz_minobs.loc[:,'rank_supp'] = np.arange(1,numGenes +1)
@@ -161,7 +161,6 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     # write output file
     #
-    #drugz_minobs.to_csv( drugz_outfile, sep='\t', float_format='%3.2f')
     fout = drugz_outfile
     if not hasattr(fout, 'write'):
         fout = open(fout, 'w')
