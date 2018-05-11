@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 
-VERSION = 1.0
-BUILD   = 102
+VERSION = "1.1.0.1"
+BUILD   = 103
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
-# (c) 2017 Traver Hart <traver@hart-lab.org>, Gang Wang <iskysinger@gmail.com>
+# (c) 2018 Traver Hart <traver@hart-lab.org>, Gang Wang <iskysinger@gmail.com>
 # Special thanks to Matej Usaj 
-# Last modified 18 Oct 2017
+# Last modified 11 May 2018
 # Free to modify and redistribute with attribtuion
 #---------------------------------
 
@@ -17,25 +17,26 @@ BUILD   = 102
 # ------------------------------------
 import sys
 
-from matplotlib.mlab import find
 import six
 
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
 
+pd.options.mode.chained_assignment = None  # default='warn'
 
 # ------------------------------------
 # constants
 norm_value  = 1e7
-qmin = 0.025
-qmax = 0.975
+#qmin = 0.025 # no longer needed
+#qmax = 0.975
 min_reads_thresh = 0
 
 # ------------------------------------
 
-def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples, 
-          remove_genes=None, pseudocount=5, minObs=6, index_column=0, verbose=False):
+def drugz(readfile, drugz_outfile, control_samples, drug_samples, 
+          remove_genes=None, pseudocount=5, minObs=1, index_column=0, verbose=False):
+    # parameter "nonessfile" removed
     def log_(msg):
         if verbose:
             six.print_(msg, file=sys.stderr)
@@ -48,7 +49,9 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     #
     #read non essential genes
     #
-    non=pd.read_table(nonessfile,index_col=0);
+    #non=pd.read_table(nonessfile,index_col=0);
+    # skipped
+
     #
     #read sgRNA reads counts file
     reads = pd.read_table(readfile, index_col=index_column)
@@ -68,57 +71,56 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     # maintain raw read counts for future filtering
     ##
     
-    log_('Caculating fold change')
+    log_('Processing data')
     fc = pd.DataFrame(index=reads.index.values)
     fc['GENE'] = reads.ix[:, (reads.columns.values[0] ) ]      # first column of input file MUST be gene name!
-    for k in range(len(control_samples)):    
+    for k in range(len(control_samples)):
+        log_('Calculating fold change for replicate {0}'.format(k+1))   
         fc[control_samples[k]] = reads[ control_samples[k] ]
         fc[drug_samples[k]] = reads[ drug_samples[k] ]
         fc['fc_{0}'.format(k)] = np.log2(( normed[ drug_samples[k] ] + pseudocount ) / ( normed[ control_samples[k] ]+ pseudocount))   
-    
+        # sort by reads, descending:
+        fc.sort_values(control_samples[k], ascending=False, inplace=True)
+        # add columns for eb_mean, eb_std
+        fc['eb_mean_{0}'.format(k)] = np.zeros(numGuides)
+        fc['eb_std_{0}'.format(k)] = np.zeros(numGuides)
+        #
+        # get mean, std of fold changes based on 800 nearest fc
+        # 
+        log_('Caculating Epirical Bayes estimates of mean, std for replicate {0}'.format(k+1))
+        for i in range(400, numGuides-400):
+            ebmean = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].mean()
+            ebstd  = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].std()
+            fc['eb_mean_{0}'.format(k)] = ebmean
+            fc['eb_std_{0}'.format(k)] = ebstd
+        #
+        # set ebmean, ebstd for top, bottom 400 guides
+        #
+        log_('Smoothing estimated mean, std for replicate {0}'.format(k+1))
+        fc['eb_mean_{0}'.format(k)][0:400] = fc.iloc[400]['eb_mean_{0}'.format(k)]
+        fc['eb_mean_{0}'.format(k)][fc.shape[0]-400:] = fc.iloc[fc.shape[0]-401]['eb_mean_{0}'.format(k)]
+        fc['eb_std_{0}'.format(k)][0:400] = fc.iloc[400]['eb_std_{0}'.format(k)]
+        fc['eb_std_{0}'.format(k)][fc.shape[0]-400:] = fc.iloc[fc.shape[0]-401]['eb_std_{0}'.format(k)]
+        #
+        # smooth eb_mean, eb_std: make monotonic
+        #
+        for i in range(1,fc.shape[0]):
+            if ( fc.iloc[i]['eb_std_{0}'.format(k)] < fc.iloc[i-1]['eb_std_{0}'.format(k)]):
+                fc['eb_stdB'][i] = fc.iloc[i-1]['eb_std_{0}'.format(k)]
+            if ( fc.iloc[i]['eb_mean_{0}'.format(k)] < fc.iloc[i-1]['eb_mean_{0}'.format(k)]):
+                fc['eb_mean_{0}'.format(k)][i] = fc.iloc[i-1]['eb_mean_{0}'.format(k)]
+        #
+        # calc z score of guide
+        #
+        log_('Caculating Zscores for replicate {0}'.format(k+1))
+        fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc['eb_mean_{0}'.format(k)]) / fc['eb_std_{0}'.format(k)] 
     
     # remove control genes
     # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
     # TKOv3: 'EGFP','LacZ','luciferase'
-    
     if ( remove_genes ):
         fc = fc.ix[~fc.GENE.isin(remove_genes),:]
-    
-    ##
-    #create drugz foldchange dataframe
-    ##
-    
-    dz_fc = pd.DataFrame(index=fc.index.values)
-    dz_fc['GENE']=fc.GENE
-    
-    ##
-    # find nonessential/control reference 
-    ##
-    nonidx = find( np.in1d(dz_fc.GENE, non.index.values))
-    
-    ##
-    # get fold changes from specficied samples
-    #3
-    for i in range(len(control_samples)):
-        f = find(fc.ix[:,control_samples[i]] > min_reads_thresh)
-        dz_fc['dz_fc_{0}'.format(i)] = fc.ix[f,'fc_{0}'.format(i)]
-    numGuides, numSamples = dz_fc.shape
-    
-    ##
-    # calculate zscores for each gRNA from trimmed-mean/trimmed-variance fold change distributions
-    ##
-    
-    log_('Caculating Zscores')
-    for i in range(1, numSamples):
-        sample = dz_fc.columns.values[i]
-        fin    = find( np.isfinite(dz_fc.ix[nonidx,sample]))
-        quants = dz_fc.ix[nonidx[fin],sample].quantile([qmin,qmax])
-        g = find( (dz_fc.ix[nonidx,sample] > quants[qmin]) & (dz_fc.ix[nonidx,sample] < quants[qmax]) & ( np.isfinite(dz_fc.ix[nonidx,sample]) ) )
-        sigmag = dz_fc.ix[nonidx[g],sample].std()
-        mug = dz_fc.ix[nonidx[g],sample].mean()
-        zsample = 'Z_' + sample
-        dz_fc[zsample] = (dz_fc.ix[:,sample] - mug) / sigmag
-    
+
     ##
     # sum guide-level zscores to gene-level drugz scores. keep track of how many elements (fold change observations) were summed.
     ##
@@ -126,8 +128,8 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     log_('Combining drugZ scores')
     
     # get unique list of genes in the data set
-    usedColumns = ['Z_dz_fc_{0}'.format(i) for i in range(num_replicates)]
-    drugz = dz_fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
+    usedColumns = ['Zlog_fc_{0}'.format(i) for i in range(num_replicates)]
+    drugz = fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
     drugz.columns = ['sumZ', 'numObs']
     #
     #
@@ -138,14 +140,13 @@ def drugz(readfile, nonessfile, drugz_outfile, control_samples, drug_samples,
     drugz_minobs = drugz.ix[drugz.numObs>=minObs,:]
     numGenes, numCols = drugz_minobs.shape
     ##
-    # calculate normZ as sumZ / sqrt(numObs), then Z-transform with trimmed mean/stdev
+    # calculate normZ as sumZ / sqrt(numObs)
     ##
-    normZ = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
-    quants = normZ.quantile([qmin,qmax])
-    g = find( (normZ > quants[qmin]) & (normZ < quants[qmax]) )
-    sigmag = normZ[g].std()
-    mug = normZ[g].mean()
-    drugz_minobs.loc[:,'normZ'] = (normZ - mug) / sigmag
+    #normZ = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
+    drugz_minobs.loc[:,'normZ'] = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
+    #
+    # rank by normZ to identify synthetic interactions
+    #
     drugz_minobs=drugz_minobs.sort_values('normZ', ascending=True)
     drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
     drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
@@ -195,7 +196,7 @@ def main():
     p._optionals.title = "Options"
     p.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt", help="sgRNA readcount file", default=sys.stdin)
     p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", help="drugz output file", default=sys.stdout) 
-    p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
+    #p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
     p.add_argument("-c", dest="control_samples", metavar="control samples", required=True, help="control samples, comma delimited")
     p.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True, help="treatment samples, comma delimited")
     p.add_argument("-r", dest="remove_genes", metavar="remove genes", help="genes to remove, comma delimited", default='')
@@ -213,8 +214,11 @@ def main():
     if len(control_samples) != len(drug_samples):
         p.error("Must have the same number of control and drug samples")
     
-    drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
+    #drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
+    #      remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
+    drugz(args.infile, args.drugz, control_samples, drug_samples, 
           remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
+
 
 if __name__=="__main__":
     main()
