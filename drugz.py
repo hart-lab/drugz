@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 105
+BUILD   = 107
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -48,6 +48,13 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     #read sgRNA reads counts file
     #
     reads = pd.read_table(readfile, index_col=index_column)
+
+    # remove control genes
+    # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
+    # TKOv3: 'EGFP','LacZ','luciferase'
+    if ( remove_genes ):
+        reads = reads.loc[~reads[ reads.columns.values[0] ].isin(remove_genes),:]
+
     numGuides, numSamples = reads.shape
     #
         
@@ -120,12 +127,6 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
         log_('Caculating Zscores for replicate {0}'.format(k+1))
         fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc[eb_mean_samplid]) / fc[eb_std_samplid] 
     
-    # remove control genes
-    # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
-    # TKOv3: 'EGFP','LacZ','luciferase'
-    if ( remove_genes ):
-        fc = fc.ix[~fc.GENE.isin(remove_genes),:]
-
     ##
     # sum guide-level zscores to gene-level drugz scores. keep track of how many elements (fold change observations) were summed.
     ##
