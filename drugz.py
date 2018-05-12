@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-VERSION = "1.1.0.1"
-BUILD   = 103
+VERSION = "1.1.0.2"
+BUILD   = 104
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -140,14 +140,18 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     drugz_minobs = drugz.ix[drugz.numObs>=minObs,:]
     numGenes, numCols = drugz_minobs.shape
     ##
-    # calculate normZ as sumZ / sqrt(numObs)
+    # normalize sumZ by number of observations
     ##
-    #normZ = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
     drugz_minobs.loc[:,'normZ'] = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
+    #
+    # renormalize to fit uniform distribution of null p-vals
+    #
+    drugz_minobz['normZ'] = stats.zscore(drugz_minobs['normZ'])
+
     #
     # rank by normZ to identify synthetic interactions
     #
-    drugz_minobs=drugz_minobs.sort_values('normZ', ascending=True)
+    drugz_minobs.sort_values('normZ', ascending=True, inplace=True)
     drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
     drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
     drugz_minobs.loc[:,'fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs.loc[:,'rank_synth']
