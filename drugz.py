@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 104
+BUILD   = 105
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -28,9 +28,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 # ------------------------------------
 # constants
 norm_value  = 1e7
-#qmin = 0.025 # no longer needed
-#qmax = 0.975
-min_reads_thresh = 0
+min_reads_thresh = 1
 
 # ------------------------------------
 
@@ -45,15 +43,10 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     
     log_('Control samples:  ' + str(control_samples))
     log_('Treated samples:  ' + str(drug_samples))
-    
-    #
-    #read non essential genes
-    #
-    #non=pd.read_table(nonessfile,index_col=0);
-    # skipped
 
     #
     #read sgRNA reads counts file
+    #
     reads = pd.read_table(readfile, index_col=index_column)
     numGuides, numSamples = reads.shape
     #
@@ -63,57 +56,69 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     #normalize to norm_value reads
     #
     log_('Normalizing read counts')
-    normed = norm_value * reads.ix[:,control_samples+drug_samples] / reads.ix[:,control_samples+drug_samples].sum().as_matrix()
+    normed = norm_value * reads[control_samples+drug_samples] / reads[control_samples+drug_samples].sum().as_matrix()
     
     
     ##
     #Caculate fold change with normalized reads + pseudocount
     # maintain raw read counts for future filtering
     ##
-    
     log_('Processing data')
     fc = pd.DataFrame(index=reads.index.values)
-    fc['GENE'] = reads.ix[:, (reads.columns.values[0] ) ]      # first column of input file MUST be gene name!
+    fc['GENE'] = reads[ reads.columns.values[0] ]      # first column of input file MUST be gene name!
+
     for k in range(len(control_samples)):
         log_('Calculating fold change for replicate {0}'.format(k+1))   
         fc[control_samples[k]] = reads[ control_samples[k] ]
         fc[drug_samples[k]] = reads[ drug_samples[k] ]
         fc['fc_{0}'.format(k)] = np.log2(( normed[ drug_samples[k] ] + pseudocount ) / ( normed[ control_samples[k] ]+ pseudocount))   
-        # sort by reads, descending:
+        #
+        # sort guides by readcount, descending:
+        #
         fc.sort_values(control_samples[k], ascending=False, inplace=True)
+        #
         # add columns for eb_mean, eb_std
-        fc['eb_mean_{0}'.format(k)] = np.zeros(numGuides)
-        fc['eb_std_{0}'.format(k)] = np.zeros(numGuides)
+        #
+        eb_mean_samplid = 'eb_mean_{0}'.format(k)
+        eb_std_samplid  = 'eb_std_{0}'.format(k)
+        fc[eb_mean_samplid] = np.zeros(numGuides)
+        fc[eb_std_samplid] = np.zeros(numGuides)
         #
         # get mean, std of fold changes based on 800 nearest fc
         # 
-        log_('Caculating Epirical Bayes estimates of mean, std for replicate {0}'.format(k+1))
-        for i in range(400, numGuides-400):
+        log_('Caculating smoothed Epirical Bayes estimates of mean, std for replicate {0}'.format(k+1))
+        #
+        # initialize element at index 400
+        #
+        ebmean = fc.iloc[0:800]['fc_{0}'.format(k)].mean()
+        ebstd  = fc.iloc[0:800]['fc_{0}'.format(k)].std()
+        fc[eb_mean_samplid][0:401] = ebmean
+        fc[eb_std_samplid][0:401]  = ebstd
+        #
+        # from 401..(end-400), calculate mean/std, update if >= previous (monotone smoothing)
+        #
+        for i in range(401, numGuides-400):
             ebmean = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].mean()
+            if (ebmean >= fc[eb_mean_samplid][i-1]):
+                fc[eb_mean_samplid][i] = ebmean
+            else:
+                fc[eb_mean_samplid][i] = fc[eb_mean_samplid][i-1]
             ebstd  = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].std()
-            fc['eb_mean_{0}'.format(k)] = ebmean
-            fc['eb_std_{0}'.format(k)] = ebstd
+            if (ebstd >= fc[eb_std_samplid][i-1]):
+                fc[eb_std_samplid][i] = ebstd
+            else:
+                fc[eb_std_samplid][i] = fc.iloc[i-1][eb_std_samplid]
         #
-        # set ebmean, ebstd for top, bottom 400 guides
+        # set ebmean, ebstd for bottom 400 guides
         #
-        log_('Smoothing estimated mean, std for replicate {0}'.format(k+1))
-        fc['eb_mean_{0}'.format(k)][0:400] = fc.iloc[400]['eb_mean_{0}'.format(k)]
-        fc['eb_mean_{0}'.format(k)][fc.shape[0]-400:] = fc.iloc[fc.shape[0]-401]['eb_mean_{0}'.format(k)]
-        fc['eb_std_{0}'.format(k)][0:400] = fc.iloc[400]['eb_std_{0}'.format(k)]
-        fc['eb_std_{0}'.format(k)][fc.shape[0]-400:] = fc.iloc[fc.shape[0]-401]['eb_std_{0}'.format(k)]
-        #
-        # smooth eb_mean, eb_std: make monotonic
-        #
-        for i in range(1,fc.shape[0]):
-            if ( fc.iloc[i]['eb_std_{0}'.format(k)] < fc.iloc[i-1]['eb_std_{0}'.format(k)]):
-                fc['eb_stdB'][i] = fc.iloc[i-1]['eb_std_{0}'.format(k)]
-            if ( fc.iloc[i]['eb_mean_{0}'.format(k)] < fc.iloc[i-1]['eb_mean_{0}'.format(k)]):
-                fc['eb_mean_{0}'.format(k)][i] = fc.iloc[i-1]['eb_mean_{0}'.format(k)]
+        #log_('Smoothing estimated mean, std for replicate {0}'.format(k+1))
+        fc[eb_mean_samplid][numGuides-400:] = fc.iloc[numGuides-401][eb_mean_samplid]
+        fc[eb_std_samplid][numGuides-400:] = fc.iloc[numGuides-401][eb_std_samplid]
         #
         # calc z score of guide
         #
         log_('Caculating Zscores for replicate {0}'.format(k+1))
-        fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc['eb_mean_{0}'.format(k)]) / fc['eb_std_{0}'.format(k)] 
+        fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc[eb_mean_samplid]) / fc[eb_std_samplid] 
     
     # remove control genes
     # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
@@ -142,26 +147,26 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     ##
     # normalize sumZ by number of observations
     ##
-    drugz_minobs.loc[:,'normZ'] = drugz_minobs.loc[:,'sumZ'] / np.sqrt( drugz_minobs.loc[:,'numObs'])
+    drugz_minobs['normZ'] = drugz_minobs['sumZ'] / np.sqrt( drugz_minobs['numObs'])
     #
     # renormalize to fit uniform distribution of null p-vals
     #
-    drugz_minobz['normZ'] = stats.zscore(drugz_minobs['normZ'])
+    drugz_minobs['normZ'] = stats.zscore(drugz_minobs['normZ'])
 
     #
-    # rank by normZ to identify synthetic interactions
+    # rank by normZ (ascending) to identify synthetic interactions
     #
     drugz_minobs.sort_values('normZ', ascending=True, inplace=True)
-    drugz_minobs.loc[:,'pval_synth'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'] * -1)
-    drugz_minobs.loc[:,'rank_synth'] = np.arange(1,numGenes +1)
-    drugz_minobs.loc[:,'fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs.loc[:,'rank_synth']
+    drugz_minobs['pval_synth'] = stats.norm.sf( drugz_minobs['normZ'] * -1)
+    drugz_minobs['rank_synth'] = np.arange(1,numGenes +1)
+    drugz_minobs['fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs['rank_synth']
     #
-    # rerank by normZ to identify suppressor interactions
+    # rerank by normZ (descending) to identify suppressor interactions
     #
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=False)
-    drugz_minobs.loc[:,'pval_supp'] = stats.norm.sf( drugz_minobs.loc[:,'normZ'])
-    drugz_minobs.loc[:,'rank_supp'] = np.arange(1,numGenes +1)
-    drugz_minobs.loc[:,'fdr_supp']  = drugz_minobs.loc[:,'pval_supp'] * numGenes / drugz_minobs.loc[:,'rank_supp']
+    drugz_minobs['pval_supp'] = stats.norm.sf( drugz_minobs['normZ'])
+    drugz_minobs['rank_supp'] = np.arange(1,numGenes +1)
+    drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp'] * numGenes / drugz_minobs['rank_supp']
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=True)
     #
     # write output file
@@ -185,7 +190,7 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
             drugz_minobs.loc[i,'pval_synth'], \
             int(drugz_minobs.loc[i,'rank_synth']), \
             drugz_minobs.loc[i,'fdr_synth'], \
-           drugz_minobs.loc[i,'pval_supp'], \
+            drugz_minobs.loc[i,'pval_supp'], \
             int(drugz_minobs.loc[i,'rank_supp']), \
             drugz_minobs.loc[i,'fdr_supp'] ) )
     
