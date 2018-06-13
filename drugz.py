@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 108
+BUILD   = 109
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
-# (c) 2018 Traver Hart <traver@hart-lab.org>, Gang Wang <iskysinger@gmail.com>
 # Special thanks to Matej Usaj 
-# Last modified 11 May 2018
+# Last modified 13 Jun 2018
 # Free to modify and redistribute with attribtuion
 #---------------------------------
 
@@ -105,18 +104,13 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples, fc_outfile=Non
         #
         # from 250..(end-250), calculate mean/std, update if >= previous (monotone smoothing)
         #
-        for i in range(half_window_size, numGuides-half_window_size):
-        	# do not update the mean:
-            #ebmean = fc.iloc[i-250:i+250]['fc_{0}'.format(k)].mean()
-            #if (ebmean >= fc[eb_mean_samplid][i-1]):
-            #    fc[eb_mean_samplid][i] = ebmean
-            #else:
-            #    fc[eb_mean_samplid][i] = fc[eb_mean_samplid][i-1]
+        for i in range(half_window_size, numGuides-half_window_size+25, 25):
+            #every 25th guide, calculate stdev. binning/smoothing approach.
             ebstd  = fc.iloc[i-half_window_size:i+half_window_size]['fc_{0}'.format(k)].std()
             if (ebstd >= fc[eb_std_samplid][i-1]):
-                fc[eb_std_samplid][i] = ebstd
+                fc[eb_std_samplid][i:i+25] = ebstd              #set new std in whole step size (25)
             else:
-                fc[eb_std_samplid][i] = fc.iloc[i-1][eb_std_samplid]
+                fc[eb_std_samplid][i:i+25] = fc.iloc[i-1][eb_std_samplid]
         #
         # set ebmean, ebstd for bottom half-window set of guides
         #
