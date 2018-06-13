@@ -19,3 +19,31 @@ usage: drugz.py [-h] [-i sgRNA_count.txt] [-o drugz-output.txt]
 -I      	Index column (default=0)  
 --minobs   	(default=6) Ignore genes with fewer observations ( gRNA/gene x replicates)  
 ```
+  
+The input file should be a tab-delimited file with the following format:
+
+```
+sgRNA	Gene	T0	T15_A_control	T15_B_control	T15_C_control	T15_A_olaparib	T15_B_olaparib	T15_C_olaparib
+A1BG_CACCTTCGAGCTGCTGCGCG	A1BG	313	235	47	337	428	115	340
+A1BG_AAGAGCGCCTCGGTCCCAGC	A1BG	99	8	1	13	26	5	28
+A1BG_TGGACTTCCAGCTACGGCGC	A1BG	650	336	74	185	392	193	304
+A1BG_CACTGGCGCCATCGAGAGCC	A1BG	718	192	34	296	178	69	185
+A1BG_GCTCGGGCTTGTCCACAGGA	A1BG	180	230	29	122	394	148	364
+A1BG_CAAGAGAAAGACCACGAGCA	A1BG	428	300	158	294	366	184	489
+A1CF_CGTGGCTATTTGGCATACAC	A1CF	677	452	74	423	585	446	434
+A1CF_GGTATACTCTCCTTGCAGCA	A1CF	138	69	43	109	96	184	127
+A1CF_GACATGGTATTGCAGTAGAC	A1CF	396	183	38	106	193	120	198
+(etc)
+```
+
+Critically, the "gene" column must be the first non-index column in the file, and the column headers are used on the command line. For example, to execute DrugZ analyzing just the A and B replicates of this file, the command line would be:
+
+```
+drugz.py -i [input_file] -o drugz-output.txt -c T15_A_control,T15_B_control -x T15_A_olaparib,T15_B_olaparib
+```
+
+To save the intermediate gRNA-level raw and normalized fold changes for other analyses, add the -f flag:
+
+```
+drugz.py -i [input_file] -o drugz-output.txt -f drugz-foldchange.txt -c T15_A_control,T15_B_control -x T15_A_olaparib,T15_B_olaparib
+```
