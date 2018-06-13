@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 109
+BUILD   = 110
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
