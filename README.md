@@ -1,8 +1,9 @@
 # drugz
-DrugZ software  
+DrugZ software from the Hart Lab
   
 DrugZ detects synergistic and suppressor drug-gene interactions in CRISPR screens.  
-  
+
+```
 usage: drugz.py [-h] [-i sgRNA_count.txt] [-o drugz-output.txt]  
                 [-f drugz-foldchange.txt] -c control samples -x drug samples  
                 [-r remove genes] [-p pseudocount] [-I INDEX_COLUMN]  
@@ -17,4 +18,4 @@ usage: drugz.py [-h] [-i sgRNA_count.txt] [-o drugz-output.txt]
 -p      	(default=5) pseudocount to add to all readcounts; prevents log(0) problems  
 -I      	Index column (default=0)  
 --minobs   	(default=6) Ignore genes with fewer observations ( gRNA/gene x replicates)  
-
+```
