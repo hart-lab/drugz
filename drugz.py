@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 107
+BUILD   = 108
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -29,10 +29,10 @@ pd.options.mode.chained_assignment = None  # default='warn'
 # constants
 norm_value  = 1e7
 min_reads_thresh = 1
-
+half_window_size = 500
 # ------------------------------------
 
-def drugz(readfile, drugz_outfile, control_samples, drug_samples, 
+def drugz(readfile, drugz_outfile, control_samples, drug_samples, fc_outfile=None, 
           remove_genes=None, pseudocount=5, minObs=1, index_column=0, verbose=False):
     # parameter "nonessfile" removed
     def log_(msg):
@@ -75,7 +75,7 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
     fc['GENE'] = reads[ reads.columns.values[0] ]      # first column of input file MUST be gene name!
 
     for k in range(len(control_samples)):
-        log_('Calculating fold change for replicate {0}'.format(k+1))   
+        log_('Calculating raw fold change for replicate {0}'.format(k+1))   
         fc[control_samples[k]] = reads[ control_samples[k] ]
         fc[drug_samples[k]] = reads[ drug_samples[k] ]
         fc['fc_{0}'.format(k)] = np.log2(( normed[ drug_samples[k] ] + pseudocount ) / ( normed[ control_samples[k] ]+ pseudocount))   
@@ -86,47 +86,56 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples,
         #
         # add columns for eb_mean, eb_std
         #
-        eb_mean_samplid = 'eb_mean_{0}'.format(k)
+        #eb_mean_samplid = 'eb_mean_{0}'.format(k)
         eb_std_samplid  = 'eb_std_{0}'.format(k)
-        fc[eb_mean_samplid] = np.zeros(numGuides)
+        #fc[eb_mean_samplid] = np.zeros(numGuides)
         fc[eb_std_samplid] = np.zeros(numGuides)
         #
         # get mean, std of fold changes based on 800 nearest fc
         # 
-        log_('Caculating smoothed Epirical Bayes estimates of mean, std for replicate {0}'.format(k+1))
+        log_('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(k+1))
         #
-        # initialize element at index 400
+        # initialize element at index 250
         #
-        ebmean = fc.iloc[0:800]['fc_{0}'.format(k)].mean()
-        ebstd  = fc.iloc[0:800]['fc_{0}'.format(k)].std()
-        fc[eb_mean_samplid][0:401] = ebmean
-        fc[eb_std_samplid][0:401]  = ebstd
+        # do not mean-center. fc of 0 should be z=score of 0.
+        #ebmean = fc.iloc[0:500]['fc_{0}'.format(k)].mean()
+        #fc[eb_mean_samplid][0:250] = ebmean
+        ebstd  = fc.iloc[0:half_window_size*2]['fc_{0}'.format(k)].std()
+        fc[eb_std_samplid][0:half_window_size]  = ebstd
         #
-        # from 401..(end-400), calculate mean/std, update if >= previous (monotone smoothing)
+        # from 250..(end-250), calculate mean/std, update if >= previous (monotone smoothing)
         #
-        for i in range(401, numGuides-400):
-            ebmean = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].mean()
-            if (ebmean >= fc[eb_mean_samplid][i-1]):
-                fc[eb_mean_samplid][i] = ebmean
-            else:
-                fc[eb_mean_samplid][i] = fc[eb_mean_samplid][i-1]
-            ebstd  = fc.iloc[i-400:i+400]['fc_{0}'.format(k)].std()
+        for i in range(half_window_size, numGuides-half_window_size):
+        	# do not update the mean:
+            #ebmean = fc.iloc[i-250:i+250]['fc_{0}'.format(k)].mean()
+            #if (ebmean >= fc[eb_mean_samplid][i-1]):
+            #    fc[eb_mean_samplid][i] = ebmean
+            #else:
+            #    fc[eb_mean_samplid][i] = fc[eb_mean_samplid][i-1]
+            ebstd  = fc.iloc[i-half_window_size:i+half_window_size]['fc_{0}'.format(k)].std()
             if (ebstd >= fc[eb_std_samplid][i-1]):
                 fc[eb_std_samplid][i] = ebstd
             else:
                 fc[eb_std_samplid][i] = fc.iloc[i-1][eb_std_samplid]
         #
-        # set ebmean, ebstd for bottom 400 guides
+        # set ebmean, ebstd for bottom half-window set of guides
         #
-        #log_('Smoothing estimated mean, std for replicate {0}'.format(k+1))
-        fc[eb_mean_samplid][numGuides-400:] = fc.iloc[numGuides-401][eb_mean_samplid]
-        fc[eb_std_samplid][numGuides-400:] = fc.iloc[numGuides-401][eb_std_samplid]
+        #log_('Smoothing estimated std for replicate {0}'.format(k+1))
+        #fc[eb_mean_samplid][numGuides-250:] = fc.iloc[numGuides-251][eb_mean_samplid]
+        fc[eb_std_samplid][numGuides-half_window_size:] = fc.iloc[numGuides-(half_window_size+1)][eb_std_samplid]
         #
         # calc z score of guide
         #
         log_('Caculating Zscores for replicate {0}'.format(k+1))
-        fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc[eb_mean_samplid]) / fc[eb_std_samplid] 
+        #fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc[eb_mean_samplid]) / fc[eb_std_samplid] 
+        fc['Zlog_fc_{0}'.format(k)] = fc['fc_{0}'.format(k)] / fc[eb_std_samplid] 
     
+    ##
+    # write fc file as intermediate output
+    ##
+    if ( fc_outfile ): 
+    	fc.to_csv( fc_outfile, sep='\t', float_format='%4.3f')
+
     ##
     # sum guide-level zscores to gene-level drugz scores. keep track of how many elements (fold change observations) were summed.
     ##
@@ -205,7 +214,8 @@ def main():
     p = argparse.ArgumentParser(description='DrugZ for chemogenetic interaction screens',epilog='dependencies: pylab, pandas')
     p._optionals.title = "Options"
     p.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt", help="sgRNA readcount file", default=sys.stdin)
-    p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", help="drugz output file", default=sys.stdout) 
+    p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", help="drugz output file", default=sys.stdout)
+    p.add_argument("-f", dest="fc_outfile", type=argparse.FileType('w'), metavar="drugz-foldchange.txt", help="drugz normalized foldchange file (optional") 
     #p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
     p.add_argument("-c", dest="control_samples", metavar="control samples", required=True, help="control samples, comma delimited")
     p.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True, help="treatment samples, comma delimited")
@@ -227,7 +237,7 @@ def main():
     #drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples, 
     #      remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
     drugz(args.infile, args.drugz, control_samples, drug_samples, 
-          remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
+    	args.fc_outfile, remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
 
 
 if __name__=="__main__":
