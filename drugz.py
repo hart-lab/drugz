@@ -138,7 +138,7 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples, fc_outfile=Non
     
     # get unique list of genes in the data set
     usedColumns = ['Zlog_fc_{0}'.format(i) for i in range(num_replicates)]
-    drugz = fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.isfinite(x.values).sum()]))
+    drugz = fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.count_nonzero(x.values)]))
     drugz.columns = ['sumZ', 'numObs']
     #
     #
