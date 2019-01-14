@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 VERSION = "1.1.0.2"
-BUILD   = 110
+BUILD   = 111
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -219,7 +219,7 @@ def main():
     p.add_argument("-r", dest="remove_genes", metavar="remove genes", help="genes to remove, comma delimited", default='')
     p.add_argument("-p", dest="pseudocount", type=int, metavar="pseudocount", help="pseudocount (default=5)", default=5)
     p.add_argument("-I", dest="index_column", type=int, help="Index column in the input file (default=0; GENE_CLONE column)", default=0)
-    p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", help="min number of obs (default=6)", default=6)
+    p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", help="min number of obs (default=1)", default=1)
     p.add_argument("--half_window_size", dest="half_window_size", type=int,metavar="half_window_size", help="width of variance-estimation window", default=500)
     p.add_argument("-q", dest="quiet", action='store_true', default=False, help='Be quiet, do not print log messages')
 
