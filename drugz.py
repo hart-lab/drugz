@@ -166,14 +166,21 @@ def drugz(readfile, drugz_outfile, control_samples, drug_samples, fc_outfile=Non
     drugz_minobs.sort_values('normZ', ascending=True, inplace=True)
     drugz_minobs['pval_synth'] = stats.norm.sf( drugz_minobs['normZ'] * -1)
     drugz_minobs['rank_synth'] = np.arange(1,numGenes +1)
-    drugz_minobs['fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs['rank_synth']
+    #drugz_minobs['fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs['rank_synth']
+    scale = drugz_minobs['rank_synth']/float(numGenes)
+    drugz_minobs['fdr_synth']  = drugz_minobs['pval_synth']/scale
+    drugz_minobs['fdr_synth'] = np.minimum.accumulate(drugz_minobs['fdr_synth'][::-1])[::-1]
     #
     # rerank by normZ (descending) to identify suppressor interactions
     #
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=False)
     drugz_minobs['pval_supp'] = stats.norm.sf( drugz_minobs['normZ'])
     drugz_minobs['rank_supp'] = np.arange(1,numGenes +1)
-    drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp'] * numGenes / drugz_minobs['rank_supp']
+    #drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp'] * numGenes / drugz_minobs['rank_supp']
+    scale = drugz_minobs['rank_supp']/float(numGenes)
+    drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp']/scale
+    drugz_minobs['fdr_supp'] = np.minimum.accumulate(drugz_minobs['fdr_supp'][::-1])[::-1]
+          
     drugz_minobs = drugz_minobs.sort_values('normZ', ascending=True)
     #
     # write output file
