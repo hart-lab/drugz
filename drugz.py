@@ -1,12 +1,10 @@
-#!/usr/bin/env python
-
-VERSION = "1.1.0.2"
-BUILD   = 111
+#VERSION = "1.1.0.2"
+#BUILD   = 113
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
 # Special thanks to Matej Usaj
-# Last modified 13 Jun 2018
+# Last modified 18 Jun 2019
 # Free to modify and redistribute with attribtuion
 #---------------------------------
 
@@ -15,235 +13,356 @@ BUILD   = 111
 # python modules
 # ------------------------------------
 import sys
-
 import six
 
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
 
-pd.options.mode.chained_assignment = None  # default='warn'
+import argparse
+import logging as log
+
+log.basicConfig(level=log.INFO)
+log_ = log.getLogger(__name__)
+
+
+pd.options.mode.chained_assignment = None
+# default='warn' - printing a warning message
+# None - ignoring the warning
+# "raise" - raising an exception
 
 # ------------------------------------
 # constants
 norm_value  = 1e7
 min_reads_thresh = 1
-#half_window_size = 500
 # ------------------------------------
 
-def drugz(readfile, drugz_outfile, control_samples, drug_samples, fc_outfile=None,
-          remove_genes=None, pseudocount=5, minObs=1, half_window_size = 500, index_column=0, verbose=False):
-    # parameter "nonessfile" removed
-    def log_(msg):
-        if verbose:
-            six.print_(msg, file=sys.stderr)
 
-    num_replicates = len(control_samples)
+def load_reads(filepath, index_column, genes_to_remove):
+    """
+    Load the input file (raw reads counts - guide level)
+    and remove guides targerting control genes
 
-    log_('Control samples:  ' + str(control_samples))
-    log_('Treated samples:  ' + str(drug_samples))
+    :param filepath: The path to the file to be loaded
+    :param index_column: The column to use as an index (guide IDs)
+    :param genes_to_remove: A string of comma separated control gene names
+    :return: reads: A dataframe containing the read counts to be used in the further analysis
+    """
 
-    #
-    #read sgRNA reads counts file
-    #
-    reads = pd.read_table(readfile, index_col=index_column)
-
-    # remove control genes
-    # e.g. TKOv1 genes ['chr10Promiscuous','chr10Rand','chr10','EGFP','LacZ','luciferase']
-    # TKOv3: 'EGFP','LacZ','luciferase'
-    if ( remove_genes ):
-        reads = reads.loc[~reads[ reads.columns.values[0] ].isin(remove_genes),:]
-
-    numGuides, numSamples = reads.shape
-    #
-
-    #sample_sum = reads.ix[:,range(1,numSamples)].sum(0)
-    #
-    #normalize to norm_value reads
-    #
-    log_('Normalizing read counts')
-    normed = norm_value * reads[control_samples+drug_samples] / reads[control_samples+drug_samples].sum().as_matrix()
+    # Load the input file with guide ids as row ids (file is to be tab delimited)
+    reads = pd.read_csv(filepath, index_col=index_column, delimiter='\t')
 
 
-    ##
-    #Caculate fold change with normalized reads + pseudocount
-    # maintain raw read counts for future filtering
-    ##
-    log_('Processing data')
-    fc = pd.DataFrame(index=reads.index.values)
-    fc['GENE'] = reads[ reads.columns.values[0] ]      # first column of input file MUST be gene name!
+    # Remove guides targeting control genes
+    if genes_to_remove is not None:
+        gene_column = reads.columns.values[0]
+        reads_wo_remove_genes = reads.loc[~reads[gene_column].isin(genes_to_remove), :]
+        return reads_wo_remove_genes
+    else:
+        return reads
 
-    for k in range(len(control_samples)):
-        log_('Calculating raw fold change for replicate {0}'.format(k+1))
-        fc[control_samples[k]] = reads[ control_samples[k] ]
-        fc[drug_samples[k]] = reads[ drug_samples[k] ]
-        fc['fc_{0}'.format(k)] = np.log2(( normed[ drug_samples[k] ] + pseudocount ) / ( normed[ control_samples[k] ]+ pseudocount))
-        #
-        # sort guides by readcount, descending:
-        #
-        fc.sort_values(control_samples[k], ascending=False, inplace=True)
-        #
-        # add columns for eb_mean, eb_std
-        #
-        #eb_mean_samplid = 'eb_mean_{0}'.format(k)
-        eb_std_samplid  = 'eb_std_{0}'.format(k)
-        #fc[eb_mean_samplid] = np.zeros(numGuides)
-        fc[eb_std_samplid] = np.zeros(numGuides)
-        #
-        # get mean, std of fold changes based on 800 nearest fc
-        #
-        log_('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(k+1))
-        #
-        # initialize element at index 250
-        #
-        # do not mean-center. fc of 0 should be z=score of 0.
-        #ebmean = fc.iloc[0:500]['fc_{0}'.format(k)].mean()
-        #fc[eb_mean_samplid][0:250] = ebmean
 
-        # parameter "half_window_size" added
-        half_window_size = half_window_size
-        ebstd  = fc.iloc[0:half_window_size*2]['fc_{0}'.format(k)].std()
-        fc[eb_std_samplid][0:half_window_size]  = ebstd
-        #
-        # from 250..(end-250), calculate mean/std, update if >= previous (monotone smoothing)
-        #
-        for i in range(half_window_size, numGuides-half_window_size+25, 25):
-            #every 25th guide, calculate stdev. binning/smoothing approach.
-            ebstd  = fc.iloc[i-half_window_size:i+half_window_size]['fc_{0}'.format(k)].std()
-            if (ebstd >= fc[eb_std_samplid][i-1]):
-                fc[eb_std_samplid][i:i+25] = ebstd              #set new std in whole step size (25)
-            else:
-                fc[eb_std_samplid][i:i+25] = fc.iloc[i-1][eb_std_samplid]
-        #
-        # set ebmean, ebstd for bottom half-window set of guides
-        #
-        #log_('Smoothing estimated std for replicate {0}'.format(k+1))
-        #fc[eb_mean_samplid][numGuides-250:] = fc.iloc[numGuides-251][eb_mean_samplid]
-        fc[eb_std_samplid][numGuides-half_window_size:] = fc.iloc[numGuides-(half_window_size+1)][eb_std_samplid]
-        #
-        # calc z score of guide
-        #
-        log_('Caculating Zscores for replicate {0}'.format(k+1))
-        #fc['Zlog_fc_{0}'.format(k)] = (fc['fc_{0}'.format(k)] - fc[eb_mean_samplid]) / fc[eb_std_samplid]
-        fc['Zlog_fc_{0}'.format(k)] = fc['fc_{0}'.format(k)] / fc[eb_std_samplid]
+def normalize_readcounts(reads, treatment, control):
+    """
+    Normalise input read counts using the global variable norm_value
 
-    ##
-    # write fc file as intermediate output
-    ##
-    if ( fc_outfile ):
-    	fc.to_csv( fc_outfile, sep='\t', float_format='%4.3f')
+    :param reads: Dataframe containing reads counts (guide level)
+    :param treatment: List of columns names for the samples in the treatment group
+    :param control: List of column names for the samples in the control group
+    :return: normalised_counts: A dataframe containing normalised read counts
+    """
 
-    ##
-    # sum guide-level zscores to gene-level drugz scores. keep track of how many elements (fold change observations) were summed.
-    ##
+    reads_to_normalize = reads[control + treatment]
 
-    log_('Combining drugZ scores')
+    # Normalize raw read counts using norm_value (1e7)
 
-    # get unique list of genes in the data set
-    usedColumns = ['Zlog_fc_{0}'.format(i) for i in range(num_replicates)]
-    drugz = fc.groupby('GENE')[usedColumns].apply(lambda x: pd.Series([np.nansum(x.values), np.count_nonzero(x.values)]))
-    drugz.columns = ['sumZ', 'numObs']
-    #
-    #
-    log_('Writing output file')
-    #
-    # calculate normZ, pvals (from normal dist), and fdrs (by benjamini & hochberg).
-    #
-    drugz_minobs = drugz.ix[drugz.numObs>=minObs,:]
-    numGenes, numCols = drugz_minobs.shape
-    ##
-    # normalize sumZ by number of observations
-    ##
-    drugz_minobs['normZ'] = drugz_minobs['sumZ'] / np.sqrt( drugz_minobs['numObs'])
-    #
-    # renormalize to fit uniform distribution of null p-vals
-    #
-    drugz_minobs['normZ'] = stats.zscore(drugz_minobs['normZ'])
+    normalized_counts = (norm_value * reads_to_normalize) / reads_to_normalize.sum().values
+    return normalized_counts
 
-    #
-    # rank by normZ (ascending) to identify synthetic interactions
-    #
-    drugz_minobs.sort_values('normZ', ascending=True, inplace=True)
-    drugz_minobs['pval_synth'] = stats.norm.sf( drugz_minobs['normZ'] * -1)
-    drugz_minobs['rank_synth'] = np.arange(1,numGenes +1)
-    #drugz_minobs['fdr_synth'] = drugz_minobs['pval_synth']*numGenes/drugz_minobs['rank_synth']
-    scale = drugz_minobs['rank_synth']/float(numGenes)
-    drugz_minobs['fdr_synth']  = drugz_minobs['pval_synth']/scale
-    drugz_minobs['fdr_synth'] = np.minimum.accumulate(drugz_minobs['fdr_synth'][::-1])[::-1]
-    #
-    # rerank by normZ (descending) to identify suppressor interactions
-    #
-    drugz_minobs = drugz_minobs.sort_values('normZ', ascending=False)
-    drugz_minobs['pval_supp'] = stats.norm.sf( drugz_minobs['normZ'])
-    drugz_minobs['rank_supp'] = np.arange(1,numGenes +1)
-    #drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp'] * numGenes / drugz_minobs['rank_supp']
-    scale = drugz_minobs['rank_supp']/float(numGenes)
-    drugz_minobs['fdr_supp']  = drugz_minobs['pval_supp']/scale
-    drugz_minobs['fdr_supp'] = np.minimum.accumulate(drugz_minobs['fdr_supp'][::-1])[::-1]
-          
-    drugz_minobs = drugz_minobs.sort_values('normZ', ascending=True)
-    #
-    # write output file
-    #
-    fout = drugz_outfile
+def calculate_fold_change(reads, normalized_counts, control_samples, treatment_samples, pseudocount, replicate):
+    """
+    Create a dataframe with index as guide ids
+    Calculate log2 ratio (foldchange) between treated and control reads
+
+    :param reads: Dataframe containing read counts (guide level)
+    :param normalized_counts: Dataframe containing normalized read counts
+    :param control_samples: List of control sample names
+    :param treatment_samples: List of treated sample names
+    :param pseudocount: Constant value added to all reads (default 5) - prevents log(0) problems
+    :return: A dataframe with calculated foldchange for each replicate and
+    initialized columns for guide estimated variance and z-score
+    """
+
+    fold_change = pd.DataFrame(index=reads.index.values)
+    fold_change['GENE'] = reads[reads.columns.values[0]]
+
+    # Generate foldchange, estimated_variance, and foldchange zscore column ids for each replicate
+    fc_replicate_id = 'fc_{replicate}'.format(replicate=replicate)
+    fc_zscore_id = 'zscore_' + fc_replicate_id
+    empirical_bayes_id = 'eb_std_{replicate}'.format(replicate=replicate)
+    one_based_idx = replicate + 1
+
+    # Get the control and treatment sample ids for each replicate
+    control_sample = control_samples[replicate]
+    treatment_sample = treatment_samples[replicate]
+
+    # Add the control sample column to the fold change dataframe and sort by this column
+    fold_change[control_sample] = reads[control_sample]
+    fold_change.sort_values(control_sample, ascending=False, inplace=True)
+
+    # Extract the number of rows (number of guides) of the reads dataframe
+    no_of_guides = reads.shape[0]
+
+    # Fill in the estimated_variance and foldchange_zscore columns with 0s for now
+    fold_change[empirical_bayes_id] = np.zeros(no_of_guides)
+    fold_change[fc_zscore_id] = np.zeros(no_of_guides)
+
+    # Calculate the log2 ratio of treatment normalised read counts to control - foldchange
+    fold_change[fc_replicate_id] = np.log2(
+        (normalized_counts[treatment_sample] + pseudocount) / (normalized_counts[control_sample] + pseudocount))
+
+    return fold_change
+
+
+def empirical_bayes(fold_change, half_window_size, no_of_guides, fc_replicate_id, empirical_bayes_id, fc_zscore_id):
+    """
+    Calculate the variation present in foldchange between treatment and control read counts for bins of the data, smoothing
+    the variation during this process thus ensuring it increases or remains the same as the estimate for the previous bin.
+
+    The estimate of variation is first calculated for 2xhalf_window_size guides (sorted by reads in corresponding control sample).
+    The default for half_window_size is 500. So, for the first 1000 values we calculate
+    the estimate of variation and the set the 1st bin (0 to half_the_window_size - i.e. 0 to 500 by default) equal to this estimate.
+    For each following bin between the half-window-size and n - (where n is the number of rows (guides)) we then calculate
+    the estimate of variance for this bin:
+        if the estimate is greater than for the previous bin, we keep this calculated estimated variance
+        otherwise (etimate is less than for the previous bin) we use the estimate variance of the previous bin.
+    This smooths the variance, i.e estimated variance only ever increases or remains flat between each bin.
+    The final bin (n-half_window_size : n) is then set to the variance of the previous bin (e.g. the last estimate to be calculated).
+
+    :param fold_change: A dataframe containing foldchange (log2 ratio of treatment read counts to control read counts)
+    :param half_window_size: An integer value equal to the size of the first bin and half the size of the inital sample
+    (window) to estimate StDev. Default is 500.
+    :param empiric_bayes_id: Column header under which to store the variance estimates.
+    :param no_of_guides: An integer value euqal to the number of rows (guides) of the data frame.
+    :param fc_replicate_id: Column header under which the foldchange values are stored for the current comparison (replicate)
+    :return: fold_change: Updated instance of the input dataframe
+    """
+
+    # Calculate the standard deviation of foldchange based on a 2 * define window size range
+    std_dev = fold_change.iloc[0: half_window_size * 2][fc_replicate_id].std()
+    fold_change[empirical_bayes_id][0: half_window_size] = std_dev
+
+    # Iterate in a range(half_window_size, n-half_window_size, 25) where and n is the number of guides
+    for i in range(half_window_size, no_of_guides - half_window_size + 25, 25):
+        # in every bin calculate stdev
+        std_dev = fold_change.iloc[i - half_window_size:i + half_window_size][fc_replicate_id].std()
+
+        # If the current variation is greater than the one for previous bin then set variation equal to this
+        if std_dev >= fold_change[empirical_bayes_id][i - 1]:
+            fold_change[empirical_bayes_id][i:i + 25] = std_dev  # set new std in whole step size (25)
+        # Otherwise, set it equal to the variation of the previous bin
+        # This allows variation estimate for each bin to only increase or stay the same as the previous
+        else:
+            fold_change[empirical_bayes_id][i:i + 25] = fold_change.iloc[i - 1][empirical_bayes_id]
+
+    # Get the variation estimate for the final bin and set the remaining values in the empirical bayes column
+    # equal to this estimate
+    results = fold_change.iloc[no_of_guides - (half_window_size + 1)][empirical_bayes_id]
+    fold_change[empirical_bayes_id][no_of_guides - half_window_size:] = results
+
+    # Calculate the z_score for each guide (fc/eb_std)
+    fold_change[fc_zscore_id] = fold_change[fc_replicate_id] / fold_change[empirical_bayes_id]
+
+    return fold_change, fc_zscore_id
+
+
+def calculate_drugz_score(fold_change, min_observations, columns):
+    """
+    Calculate per gene statistics for the zscores aggregated across all comparisons
+
+    The summed zscores and the number of observations for each gene are first aggregated. These zscores are then
+    normalised and pvalue estimates (assuming guassian distribution), rank position, and FDR are calculated
+    The statistics are first (with normalised zscores ranked smallest to largest) to identify synthetic
+    interactions and then (with normalised zscores now ranked largest to smallest) to identify suppressor interactions
+
+    :param fold_change: Data frame containing calculated zscores per comparison
+    :param min_observations: An integer value to act as a threshold for the minimum number observations to be included
+    in the analysis (default=1)
+    :param columns: The header (list) of the columns containing the zscores per replicate
+    :return: per_gene_results: A dataframe of summary statistics for each gene
+    """
+
+    # This is going to produce a per gene summation of the zscores for each comparison. Missing values are converted
+    # to zeros. The aggregate zscore will be stored in a column named sumZ.
+    # The second column will be the number of all non_zero observations (guides/gene * replicates) for that gene
+    per_gene_scores = fold_change.groupby('GENE')[columns].apply(lambda x: pd.Series([np.nansum(x.values),
+                                                                                      np.count_nonzero(x.values)]))
+    # Set the header for the two columns
+    per_gene_scores.columns = ['sumZ', 'numObs']
+
+	# Get a dataframe of values for genes where the number of observations is greater than the minimum threshold
+    per_gene_results = per_gene_scores.loc[per_gene_scores.numObs >= min_observations, :]
+
+    # Update the row number (number of genes) for this new dataframe.
+    no_of_genes = per_gene_results.shape[0]
+
+    # Calcualte normalized gene z-score by:
+    # 1. normalizing the sumZ values by number of observations,
+    # 2. renormalizing these values to fit uniform distribution of null p-vals
+    normalised_z_scores = stats.zscore(per_gene_results['sumZ'] / np.sqrt(per_gene_results['numObs']))
+    per_gene_results['normZ'] = normalised_z_scores
+
+    # Sort the data frame by normZ (ascending) to highlight synthetic interactions
+    per_gene_results.sort_values('normZ', ascending=True, inplace=True)
+
+    # Calculate pvals (from normal dist), and fdrs (by benjamini & hochberg correction)
+    per_gene_results['pval_synth'] = stats.norm.sf(per_gene_results['normZ'] * -1)
+    per_gene_results['rank_synth'] = np.arange(1, no_of_genes + 1)
+    scale = per_gene_results['rank_synth']/float(no_of_genes)
+    per_gene_results['fdr_synth'] = per_gene_results['pval_synth']/scale
+    per_gene_results['fdr_synth'] = np.minimum.accumulate(per_gene_results['fdr_synth'][::-1])[::-1]
+
+    # Resort by normZ (descending) and recalculate above values to identify suppressor interactions
+    per_gene_results = per_gene_results.sort_values('normZ', ascending=False)
+    per_gene_results['pval_supp'] = stats.norm.sf(per_gene_results['normZ'])
+    per_gene_results['rank_supp'] = np.arange(1, no_of_genes + 1)
+    scale = per_gene_results['rank_supp']/float(no_of_genes)
+    per_gene_results['fdr_supp'] = per_gene_results['pval_supp']/scale
+    per_gene_results['fdr_supp'] = np.minimum.accumulate(per_gene_results['fdr_supp'][::-1])[::-1]
+
+    per_gene_results = per_gene_results.sort_values('normZ', ascending=True)
+
+    return per_gene_results
+
+def write_drugZ_output(outfile, output):
+
+    """ Write drugZ results to a file
+
+    :param outfile: Output file
+    :param output: Per gene calculated statistics
+    """
+    fout = outfile
     if not hasattr(fout, 'write'):
         fout = open(fout, 'w')
     fout.write('GENE')
-    cols = drugz_minobs.columns.values
+    cols = output.columns.values
     for c in cols:
         fout.write('\t' + c)
     fout.write('\n')
 
-    for i in drugz_minobs.index.values:
-        #fout.write(i + '\t')
+    for i in output.index.values:
         fout.write( '{0:s}\t{1:3.2f}\t{2:d}\t{3:4.2f}\t{4:.3g}\t{5:d}\t{6:.3g}\t{7:.3g}\t{8:d}\t{9:.3g}\n'.format( \
             i, \
-            drugz_minobs.loc[i,'sumZ'], \
-            int(drugz_minobs.loc[i,'numObs']), \
-            drugz_minobs.loc[i,'normZ'], \
-            drugz_minobs.loc[i,'pval_synth'], \
-            int(drugz_minobs.loc[i,'rank_synth']), \
-            drugz_minobs.loc[i,'fdr_synth'], \
-            drugz_minobs.loc[i,'pval_supp'], \
-            int(drugz_minobs.loc[i,'rank_supp']), \
-            drugz_minobs.loc[i,'fdr_supp'] ) )
-
+            output.loc[i,'sumZ'], \
+            int(output.loc[i,'numObs']), \
+            output.loc[i,'normZ'], \
+            output.loc[i,'pval_synth'], \
+            int(output.loc[i,'rank_synth']), \
+            output.loc[i,'fdr_synth'], \
+            output.loc[i,'pval_supp'], \
+            int(output.loc[i,'rank_supp']), \
+            output.loc[i,'fdr_supp'] ) )
     fout.close()
+    return fout
+
+def get_args():
+    """ Parse user giver arguments"""
+
+    parser = argparse.ArgumentParser(description='DrugZ for chemogenetic interaction screens',
+                                     epilog='dependencies: pylab, pandas')
+    parser._optionals.title = "Options"
+    parser.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt",
+                        help="sgRNA readcount file", default=sys.stdin)
+    parser.add_argument("-o", dest="drugz_output_file", type=argparse.FileType('w'), metavar="drugz-output.txt",
+                        help="drugz output file", default=sys.stdout)
+    parser.add_argument("-f", dest="fc_outfile", type=argparse.FileType('w'), metavar="drugz-foldchange.txt",
+                        help="drugz normalized foldchange file (optional")
+    parser.add_argument("-c", dest="control_samples", metavar="control samples", required=True,
+                        help="control samples, comma delimited")
+    parser.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True,
+                        help="treatment samples, comma delimited")
+    parser.add_argument("-r", dest="remove_genes", metavar="remove genes", help="genes to remove, comma delimited")
+    parser.add_argument("-p", dest="pseudocount", type=int, metavar="pseudocount", help="pseudocount (default=5)",
+                        default=5)
+    parser.add_argument("-I", dest="index_column", type=int,
+                        help="Index column in the input file (default=0; GENE_CLONE column)", default=0)
+    parser.add_argument("--minobs", dest="minObs", type=int, metavar="minObs", help="min number of obs (default=1)",
+                        default=1)
+    parser.add_argument("--half_window_size", dest="half_window_size", type=int, metavar="half_window_size",
+                        help="width of variance-estimation window", default=500)
+    parser.add_argument("-q", dest="quiet", action='store_true', default=False,
+                        help='Be quiet, do not print log messages')
+    return parser.parse_args()
+
+
+def drugZ_analysis(args):
+
+    """ Call all functions and run drugZ analysis
+
+    :param args: User given arguments
+
+    """
+
+    log_.info("Initiating analysis")
+
+    control_samples = args.control_samples.split(',')
+    treatment_samples = args.drug_samples.split(',')
+    #remove_genes = args.remove_genes.split(',')
+
+    log_.debug("Control samples:"+ str(control_samples))
+    log_.debug("Treated samples:"+ str(treatment_samples))
+
+    if len(control_samples) != len(treatment_samples):
+        p.error("Must have the same number of control and drug samples")
+
+    log_.info("Loading the read count matrix")
+    reads = load_reads(filepath=args.infile, index_column=0, genes_to_remove=None)
+    no_of_guides = reads.shape[0]
+
+
+    normalized_counts = normalize_readcounts(reads=reads, control=control_samples,treatment=treatment_samples )
+    log_.info("Normalizing read counts")
+    num_replicates = len(control_samples)
+    fc_zscore_ids = list()
+    fold_changes = list()
+
+    for i in range(num_replicates):
+        fold_change = calculate_fold_change(reads, normalized_counts,
+                                                           control_samples=control_samples,
+                                                           treatment_samples=treatment_samples,
+                                                           pseudocount=args.pseudocount, replicate=i)
+        log_.info('Calculating raw fold change for replicate {0}'.format(i+1))
+
+        fold_change, fc_zscore_id = empirical_bayes(fold_change=fold_change, half_window_size=args.half_window_size,
+                                      no_of_guides=no_of_guides, fc_replicate_id='fc_{replicate}'.format(replicate=i),
+                                      empirical_bayes_id='eb_std_{replicate}'.format(replicate=i),
+                                      fc_zscore_id='zscore_fc_{replicate}'.format(replicate=i))
+
+        log_.info('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(i+1))
+
+        fold_changes.append(fold_change)
+
+        log_.info('Caculating guide-level Zscores for replicate {0}'.format(i+1))
+        fc_zscore_ids.append(fc_zscore_id)
+        fold_change =pd.concat(fold_changes, axis=1, sort=False)
+        fold_change = fold_change.loc[:,~fold_change.columns.duplicated()]
+
+    if args.fc_outfile:
+        with args.fc_outfile as fold_change_file:
+            fold_change.to_csv(fold_change_file, sep='\t', float_format='%4.3f')
+
+    log_.info('Caculating gene-level Zscores')
+    gene_normZ = calculate_drugz_score(fold_change=fold_change, min_observations=1, columns=fc_zscore_ids)
+
+    log_.info('Writing output file')
+    write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ)
 
 
 def main():
-    import argparse
 
-    ''' Parse arguments. '''
-    p = argparse.ArgumentParser(description='DrugZ for chemogenetic interaction screens',epilog='dependencies: pylab, pandas')
-    p._optionals.title = "Options"
-    p.add_argument("-i", dest="infile", type=argparse.FileType('r'), metavar="sgRNA_count.txt", help="sgRNA readcount file", default=sys.stdin)
-    p.add_argument("-o", dest="drugz", type=argparse.FileType('w'), metavar="drugz-output.txt", help="drugz output file", default=sys.stdout)
-    p.add_argument("-f", dest="fc_outfile", type=argparse.FileType('w'), metavar="drugz-foldchange.txt", help="drugz normalized foldchange file (optional")
-    #p.add_argument("-n", dest="ness", type=argparse.FileType('r'), metavar="NEG.txt", required=True, help="Non-essential gene list")
-    p.add_argument("-c", dest="control_samples", metavar="control samples", required=True, help="control samples, comma delimited")
-    p.add_argument("-x", dest="drug_samples", metavar="drug samples", required=True, help="treatment samples, comma delimited")
-    p.add_argument("-r", dest="remove_genes", metavar="remove genes", help="genes to remove, comma delimited", default='')
-    p.add_argument("-p", dest="pseudocount", type=int, metavar="pseudocount", help="pseudocount (default=5)", default=5)
-    p.add_argument("-I", dest="index_column", type=int, help="Index column in the input file (default=0; GENE_CLONE column)", default=0)
-    p.add_argument("--minobs", dest="minObs", type=int,metavar="minObs", help="min number of obs (default=1)", default=1)
-    p.add_argument("--half_window_size", dest="half_window_size", type=int,metavar="half_window_size", help="width of variance-estimation window", default=500)
-    p.add_argument("-q", dest="quiet", action='store_true', default=False, help='Be quiet, do not print log messages')
+    args = get_args()
 
-    args = p.parse_args()
-
-    control_samples = args.control_samples.split(',')
-    drug_samples = args.drug_samples.split(',')
-    remove_genes = args.remove_genes.split(',')
-
-    if len(control_samples) != len(drug_samples):
-        p.error("Must have the same number of control and drug samples")
-
-    #drugz(args.infile, args.ness, args.drugz, control_samples, drug_samples,
-    #      remove_genes, args.pseudocount, args.minObs, args.index_column, not args.quiet)
-    drugz(args.infile, args.drugz, control_samples, drug_samples,
-    	args.fc_outfile, remove_genes, args.pseudocount, args.minObs, args.half_window_size, args.index_column, not args.quiet)
-
+    drugZ_analysis(args)
 
 if __name__=="__main__":
     main()
