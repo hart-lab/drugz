@@ -65,7 +65,6 @@ def load_reads(filepath, index_column, genes_to_remove):
     """
     Load the input file (raw reads counts - guide level)
     and remove guides targerting control genes
-
     :param filepath: The path to the file to be loaded
     :param index_column: The column to use as an index (guide IDs)
     :param genes_to_remove: A string of comma separated control gene names
@@ -88,7 +87,6 @@ def load_reads(filepath, index_column, genes_to_remove):
 def normalize_readcounts(reads, treatment, control):
     """
     Normalise input read counts using the global variable norm_value
-
     :param reads: Dataframe containing reads counts (guide level)
     :param treatment: List of columns names for the samples in the treatment group
     :param control: List of column names for the samples in the control group
@@ -106,7 +104,6 @@ def calculate_fold_change(reads, normalized_counts, control_samples, treatment_s
     """
     Create a dataframe with index as guide ids
     Calculate log2 ratio (foldchange) between treated and control reads
-
     :param reads: Dataframe containing read counts (guide level)
     :param normalized_counts: Dataframe containing normalized read counts
     :param control_samples: List of control sample names
@@ -151,7 +148,6 @@ def empirical_bayes(fold_change, half_window_size, no_of_guides, fc_replicate_id
     """
     Calculate the variation present in foldchange between treatment and control read counts for bins of the data, smoothing
     the variation during this process thus ensuring it increases or remains the same as the estimate for the previous bin.
-
     The estimate of variation is first calculated for 2xhalf_window_size guides (sorted by reads in corresponding control sample).
     The default for half_window_size is 500. So, for the first 1000 values we calculate
     the estimate of variation and the set the 1st bin (0 to half_the_window_size - i.e. 0 to 500 by default) equal to this estimate.
@@ -161,7 +157,6 @@ def empirical_bayes(fold_change, half_window_size, no_of_guides, fc_replicate_id
         otherwise (etimate is less than for the previous bin) we use the estimate variance of the previous bin.
     This smooths the variance, i.e estimated variance only ever increases or remains flat between each bin.
     The final bin (n-half_window_size : n) is then set to the variance of the previous bin (e.g. the last estimate to be calculated).
-
     :param fold_change: A dataframe containing foldchange (log2 ratio of treatment read counts to control read counts)
     :param half_window_size: An integer value equal to the size of the first bin and half the size of the inital sample
     (window) to estimate StDev. Default is 500.
@@ -202,12 +197,10 @@ def empirical_bayes(fold_change, half_window_size, no_of_guides, fc_replicate_id
 def calculate_drugz_score(fold_change, min_observations, columns):
     """
     Calculate per gene statistics for the zscores aggregated across all comparisons
-
     The summed zscores and the number of observations for each gene are first aggregated. These zscores are then
     normalised and pvalue estimates (assuming guassian distribution), rank position, and FDR are calculated
     The statistics are first (with normalised zscores ranked smallest to largest) to identify synthetic
     interactions and then (with normalised zscores now ranked largest to smallest) to identify suppressor interactions
-
     :param fold_change: Data frame containing calculated zscores per comparison
     :param min_observations: An integer value to act as a threshold for the minimum number observations to be included
     in the analysis (default=1)
@@ -260,7 +253,6 @@ def calculate_drugz_score(fold_change, min_observations, columns):
 def write_drugZ_output(outfile, output):
 
     """ Write drugZ results to a file
-
     :param outfile: Output file
     :param output: Per gene calculated statistics
     """
@@ -321,16 +313,15 @@ def get_args():
 def drugZ_analysis(args):
 
     """ Call all functions and run drugZ analysis
-
     :param args: User given arguments
-
     """
 
     log_.info("Initiating analysis")
 
     control_samples = args.control_samples.split(',')
     treatment_samples = args.drug_samples.split(',')
-    #remove_genes = args.remove_genes.split(',')
+    remove_genes = list(args.remove_genes.split(','))
+ 
 
     log_.debug("Control samples:"+ str(control_samples))
     log_.debug("Treated samples:"+ str(treatment_samples))
@@ -339,7 +330,7 @@ def drugZ_analysis(args):
         p.error("Must have the same number of control and drug samples")
 
     log_.info("Loading the read count matrix")
-    reads = load_reads(filepath=args.infile, index_column=0, genes_to_remove=None)
+    reads = load_reads(filepath=args.infile, index_column=0, genes_to_remove=remove_genes)
     no_of_guides = reads.shape[0]
 
 
