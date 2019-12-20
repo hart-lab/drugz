@@ -20,6 +20,7 @@ usage: drugz.py [-h] [-i sgRNA_count.txt] [-o drugz-output.txt]
 --minobs   	Ignore genes with fewer observations ( gRNA/gene x replicates) (default=1) 
 --half_window_size  Size of the first bin and half the size of the inital sample
     (window) to estimate std (default=500) 
+-unpaired Unpaired approach: compares mean(treated samples) to mean(control samples) (default=False)
 ```
   
 The input file should be a tab-delimited file with the following format:
@@ -48,4 +49,9 @@ To save the intermediate gRNA-level raw and normalized fold changes for other an
 
 ```
 drugz.py -i [input_file] -o drugz-output.txt -f drugz-foldchange.txt -c T15_A_control,T15_B_control -x T15_A_olaparib,T15_B_olaparib
+```
+To run drugZ for an unpaired approach, add the -unpaired flag:
+
+```
+drugz.py -i [input_file] -o drugz-output.txt -f drugz-foldchange.txt -c T15_A_control,T15_B_control -x T15_A_olaparib,T15_B_olaparib -unpaired
 ```

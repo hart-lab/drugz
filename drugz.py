@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #VERSION = "1.1.0.2"
-#BUILD   = 114
+#BUILD   = 115
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
@@ -138,8 +138,7 @@ def calculate_fold_change(reads, normalized_counts, control_samples, treatment_s
     fold_change[fc_zscore_id] = np.zeros(no_of_guides)
 
     # Calculate the log2 ratio of treatment normalised read counts to control - foldchange
-    fold_change[fc_replicate_id] = np.log2(
-        (normalized_counts[treatment_sample] + pseudocount) / (normalized_counts[control_sample] + pseudocount))
+    fold_change[fc_replicate_id] = np.log2((normalized_counts[treatment_sample] + pseudocount) / (normalized_counts[control_sample] + pseudocount))
 
     return fold_change
 
@@ -307,8 +306,80 @@ def get_args():
                         help="width of variance-estimation window", default=500)
     parser.add_argument("-q", dest="quiet", action='store_true', default=False,
                         help='Be quiet, do not print log messages')
+    parser.add_argument("-unpaired", dest="unpaired", action='store_true', default=False,
+                        help='comparison status, paired (default) or unpaired')
     return parser.parse_args()
+    
+    
+    
+def calculate_unpaired_foldchange(reads, normalized_counts, control_samples, treatment_samples, pseudocount):
+    """
+    Calculates unpaired foldchange for each guides
+    """
+    fold_change = pd.DataFrame(index=reads.index.values)
+    fold_change['GENE'] = reads[reads.columns.values[0]]
+    
+    
+      # Add the control samples mean readcounts column to the fold change dataframe and sort by this column
+    fold_change['ctrl_mean_reads'] = reads[control_samples].mean(axis=1)
+    fold_change.sort_values('ctrl_mean_reads', ascending=False, inplace=True)
+    
+     # Add the column for unpaired foldchange (i.e. mean foldchange)
+    fold_change['mean_fc'] = np.log2((normalized_counts[treatment_samples].mean(axis=1) + pseudocount) / 
+                                   (normalized_counts[control_samples].mean(axis=1) + pseudocount))
+    
+     # set empty columns for eb variance and zscores
+    fold_change['eb_std'] = np.zeros(normalized_counts.shape[0])
+    fold_change['zscore'] = np.zeros(normalized_counts.shape[0])
+    
+    
+    return fold_change
 
+def calculate_drugz_score_unpaired(per_gene_matrix, min_observations):
+    """
+    Calculate per gene statistics for the zscores aggregated across comparisons from unpaired approach
+    The summed zscores and the number of observations for each gene are first aggregated. These zscores are then
+    normalised and pvalue estimates (assuming guassian distribution), rank position, and FDR are calculated
+    The statistics are first (with normalised zscores ranked smallest to largest) to identify synthetic
+    interactions and then (with normalised zscores now ranked largest to smallest) to identify suppressor interactions
+    :param per_gene_matrix: Data frame containing per gene aggregated zscores 
+    :param min_observations: An integer value to act as a threshold for the minimum number observations to be included
+    in the analysis (default=1)
+    :return: per_gene_results: A dataframe of summary statistics for each gene
+    """
+
+    per_gene_results = per_gene_matrix.loc[per_gene_matrix.numObs >= min_observations, :]
+
+    # Update the row number (number of genes) for this new dataframe.
+    no_of_genes = per_gene_results.shape[0]
+
+    # Calcualte normalized gene z-score by:
+    # 1. normalizing the sumZ values by number of observations,
+    # 2. renormalizing these values to fit uniform distribution of null p-vals
+    normalised_z_scores = stats.zscore(per_gene_results['sumZ'] / np.sqrt(per_gene_results['numObs']))
+    per_gene_results['normZ'] = normalised_z_scores
+
+    # Sort the data frame by normZ (ascending) to highlight synthetic interactions
+    per_gene_results.sort_values('normZ', ascending=True, inplace=True)
+
+    # Calculate pvals (from normal dist), and fdrs (by benjamini & hochberg correction)
+    per_gene_results['pval_synth'] = stats.norm.sf(per_gene_results['normZ'] * -1)
+    per_gene_results['rank_synth'] = np.arange(1, no_of_genes + 1)
+    scale = per_gene_results['rank_synth']/float(no_of_genes)
+    per_gene_results['fdr_synth'] = per_gene_results['pval_synth']/scale
+    per_gene_results['fdr_synth'] = np.minimum.accumulate(per_gene_results['fdr_synth'][::-1])[::-1]
+
+    # Resort by normZ (descending) and recalculate above values to identify suppressor interactions
+    per_gene_results = per_gene_results.sort_values('normZ', ascending=False)
+    per_gene_results['pval_supp'] = stats.norm.sf(per_gene_results['normZ'])
+    per_gene_results['rank_supp'] = np.arange(1, no_of_genes + 1)
+    scale = per_gene_results['rank_supp']/float(no_of_genes)
+    per_gene_results['fdr_supp'] = per_gene_results['pval_supp']/scale
+    per_gene_results['fdr_supp'] = np.minimum.accumulate(per_gene_results['fdr_supp'][::-1])[::-1]
+
+    per_gene_results = per_gene_results.sort_values('normZ', ascending=True)
+
+    return per_gene_results
 
 def drugZ_analysis(args):
 
@@ -328,7 +399,7 @@ def drugZ_analysis(args):
 
     if len(control_samples) != len(treatment_samples):
         p.error("Must have the same number of control and drug samples")
-
+        
     log_.info("Loading the read count matrix")
     reads = load_reads(filepath=args.infile, index_column=0, genes_to_remove=remove_genes)
     no_of_guides = reads.shape[0]
@@ -339,39 +410,58 @@ def drugZ_analysis(args):
     num_replicates = len(control_samples)
     fc_zscore_ids = list()
     fold_changes = list()
+    
+    if args.unpaired == True:
+        log_.info('Calculating gene-level Zscores unpaired approach')
+        fold_change2 = calculate_unpaired_foldchange(reads, normalized_counts,
+                                                   control_samples=control_samples, 
+                                                   treatment_samples=treatment_samples, pseudocount=args.pseudocount)
 
-    for i in range(num_replicates):
-        fold_change = calculate_fold_change(reads, normalized_counts,
-                                                           control_samples=control_samples,
-                                                           treatment_samples=treatment_samples,
-                                                           pseudocount=args.pseudocount, replicate=i)
-        log_.info('Calculating raw fold change for replicate {0}'.format(i+1))
+        fold_change2 = empirical_bayes(fold_change=fold_change2, half_window_size=args.half_window_size,
+                                      no_of_guides=no_of_guides, fc_replicate_id='mean_fc', 
+                                      empirical_bayes_id='eb_std', fc_zscore_id='zscore')[0]
 
-        fold_change, fc_zscore_id = empirical_bayes(fold_change=fold_change, half_window_size=args.half_window_size,
-                                      no_of_guides=no_of_guides, fc_replicate_id='fc_{replicate}'.format(replicate=i),
-                                      empirical_bayes_id='eb_std_{replicate}'.format(replicate=i),
-                                      fc_zscore_id='zscore_fc_{replicate}'.format(replicate=i))
+        per_gene_scores2 = pd.DataFrame(fold_change2.groupby('GENE')['zscore'].apply(lambda x: pd.Series([np.nansum(x.values),
+                                                                                      np.count_nonzero(x.values)]))).unstack()
+        per_gene_scores2.columns = ['sumZ', 'numObs']
+        gene_normZ2 = calculate_drugz_score_unpaired(per_gene_matrix=per_gene_scores2, min_observations=1)
 
-        log_.info('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(i+1))
+        log_.info('Writing output file unpaired results')
+        write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ2)
+        
+    else:
 
-        fold_changes.append(fold_change)
+        for i in range(num_replicates):
+            fold_change = calculate_fold_change(reads, normalized_counts,
+                                                               control_samples=control_samples,
+                                                               treatment_samples=treatment_samples,
+                                                               pseudocount=args.pseudocount, replicate=i)
+            log_.info('Calculating raw fold change for replicate {0}'.format(i+1))
 
-        log_.info('Caculating guide-level Zscores for replicate {0}'.format(i+1))
-        fc_zscore_ids.append(fc_zscore_id)
-        fold_change =pd.concat(fold_changes, axis=1, sort=False)
-        fold_change = fold_change.loc[:,~fold_change.columns.duplicated()]
+            fold_change, fc_zscore_id = empirical_bayes(fold_change=fold_change, half_window_size=args.half_window_size,
+                                          no_of_guides=no_of_guides, fc_replicate_id='fc_{replicate}'.format(replicate=i),
+                                          empirical_bayes_id='eb_std_{replicate}'.format(replicate=i),
+                                          fc_zscore_id='zscore_fc_{replicate}'.format(replicate=i))
 
-    if args.fc_outfile:
-        with args.fc_outfile as fold_change_file:
-            fold_change.to_csv(fold_change_file, sep='\t', float_format='%4.3f')
+            log_.info('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(i+1))
 
-    log_.info('Caculating gene-level Zscores')
-    gene_normZ = calculate_drugz_score(fold_change=fold_change, min_observations=1, columns=fc_zscore_ids)
+            fold_changes.append(fold_change)
 
-    log_.info('Writing output file')
-    write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ)
+            log_.info('Caculating guide-level Zscores for replicate {0}'.format(i+1))
+            fc_zscore_ids.append(fc_zscore_id)
+            fold_change =pd.concat(fold_changes, axis=1, sort=False)
+            fold_change = fold_change.loc[:,~fold_change.columns.duplicated()]
 
+        if args.fc_outfile:
+            with args.fc_outfile as fold_change_file:
+                fold_change.to_csv(fold_change_file, sep='\t', float_format='%4.3f')
 
+        log_.info('Caculating gene-level Zscores')
+        gene_normZ = calculate_drugz_score(fold_change=fold_change, min_observations=1, columns=fc_zscore_ids)
+        
+        log_.info('Writing output file paired results')
+        write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ)
+        
 def main():
 
     args = get_args()
