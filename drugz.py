@@ -397,9 +397,7 @@ def drugZ_analysis(args):
     log_.debug("Control samples:"+ str(control_samples))
     log_.debug("Treated samples:"+ str(treatment_samples))
 
-    if len(control_samples) != len(treatment_samples):
-        p.error("Must have the same number of control and drug samples")
-        
+    
     log_.info("Loading the read count matrix")
     reads = load_reads(filepath=args.infile, index_column=0, genes_to_remove=remove_genes)
     no_of_guides = reads.shape[0]
@@ -411,7 +409,7 @@ def drugZ_analysis(args):
     fc_zscore_ids = list()
     fold_changes = list()
     
-    if args.unpaired == True:
+    if (len(control_samples) != len(treatment_samples) and args.unpaired == True) or (len(control_samples) == len(treatment_samples) and args.unpaired == True):
         log_.info('Calculating gene-level Zscores unpaired approach')
         fold_change2 = calculate_unpaired_foldchange(reads, normalized_counts,
                                                    control_samples=control_samples, 
@@ -429,6 +427,9 @@ def drugZ_analysis(args):
         log_.info('Writing output file unpaired results')
         write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ2)
         
+    elif len(control_samples) != len(treatment_samples) and args.unpaired == False:
+        log_.error("Must have the same number of control and drug samples to run the paired approach")
+                          
     else:
 
         for i in range(num_replicates):
