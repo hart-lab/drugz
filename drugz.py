@@ -391,7 +391,12 @@ def drugZ_analysis(args):
 
     control_samples = args.control_samples.split(',')
     treatment_samples = args.drug_samples.split(',')
-    remove_genes = list(args.remove_genes.split(','))
+    
+    if args.remove_genes == None: 
+        remove_genes = []
+    else:
+        remove_genes = args.remove_genes.split(',')
+  
  
 
     log_.debug("Control samples:"+ str(control_samples))
