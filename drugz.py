@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 #VERSION = "1.1.0.2"
-#BUILD   = 115
+#BUILD   = 116
 
 #---------------------------------
 # DRUGZ:  Identify drug-gene interactions in paired sample genomic perturbation screens
 # Special thanks to Matej Usaj
-# Last modified 29 Jun 2019
+# Last modified 20 April 2021
 # Free to modify and redistribute according to the MIT License:
 
 #MIT License
@@ -449,7 +449,7 @@ def drugZ_analysis(args):
                                           empirical_bayes_id='eb_std_{replicate}'.format(replicate=i),
                                           fc_zscore_id='zscore_fc_{replicate}'.format(replicate=i))
 
-            log_.info('Caculating smoothed Epirical Bayes estimates of stdev for replicate {0}'.format(i+1))
+            log_.info('Caculating smoothed Empirical Bayes estimates of stdev for replicate {0}'.format(i+1))
 
             fold_changes.append(fold_change)
 
@@ -458,16 +458,19 @@ def drugZ_analysis(args):
             fold_change =pd.concat(fold_changes, axis=1, sort=False)
             fold_change = fold_change.loc[:,~fold_change.columns.duplicated()]
 
-        if args.fc_outfile:
-            with args.fc_outfile as fold_change_file:
-                fold_change.to_csv(fold_change_file, sep='\t', float_format='%4.3f')
+#         if args.fc_outfile:
+#             with args.fc_outfile as fold_change_file:
+#                 fold_change.to_csv(fold_change_file, sep='\t', float_format='%4.3f')
 
         log_.info('Caculating gene-level Zscores')
         gene_normZ = calculate_drugz_score(fold_change=fold_change, min_observations=1, columns=fc_zscore_ids)
         
         log_.info('Writing output file paired results')
         write_drugZ_output(outfile=args.drugz_output_file, output=gene_normZ)
-        
+    if args.unpaired == True:
+        return gene_normZ2
+    else:
+        return gene_normZ
 def main():
 
     args = get_args()

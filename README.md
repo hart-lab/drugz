@@ -55,3 +55,33 @@ To run drugZ for an unpaired approach, add the -unpaired flag:
 ```
 drugz.py -i [input_file] -o drugz-output.txt -f drugz-foldchange.txt -c T15_A_control,T15_B_control -x T15_A_olaparib,T15_B_olaparib -unpaired
 ```
+
+To run drugZ analysis in a jupyter notebook, and save the output as variable:
+
+```
+# define the Arguements class (more convinient since iPython doesn't recognize argparse arguments)
+# these are user-specified arguments
+
+# infile = input readcounts matrix
+# drugz_out_file = name of a file in which you will write the drugz results
+# control_samples = the names of control samples (included in column names)
+# drug_samples = the names of drug-treated samples (included in column names)
+# unpaire = unpaired approach - compares mean(treated samples) to mean(control samples) 
+# pseudocount = counts added to the observed readscounts, default = 5
+# half_window_size = size of the first bin and half the size of the inital sample (window) to estimate std, default = 500 (for whole genome screens)
+
+class Args:
+    infile = "./sgRNA_count.txt"
+    drugz_output_file = "./drugz_results.txt"
+    fc_outfile = "./fc_results.txt"
+    control_samples = 'T15_A_control,T15_B_control,T15_C_control'
+    drug_samples = 'T15_A_olaparib,T15_B_olaparib,T15_C_olaparib'
+    remove_genes = 'LacZ,luciferase,EGFR'
+    unpaired = False
+    pseudocount = 5
+    half_window_size = 5 # 5 because of the size of test data set          (sgRNA_count.txt = 9 guides (i.e. rows))
+    
+drugz_results = dz.drugZ_analysis(Args())
+```
+
+For more option check drugZ_in_jupyter_notebook_tutorial.html
