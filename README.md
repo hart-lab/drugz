@@ -59,7 +59,7 @@ drugz.py -i [input_file] -o drugz-output.txt -f drugz-foldchange.txt -c T15_A_co
 To run drugZ analysis in a jupyter notebook, and save the output as variable:
 
 ```
-# define the Arguements class (more convinient since iPython doesn't recognize argparse arguments)
+# define the Arguments class (more convinient since iPython doesn't recognize argparse arguments)
 # these are user-specified arguments
 
 # infile = input readcounts matrix
